@@ -1,0 +1,1691 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Arena — Play. Compete. Climb.</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-deep: #100e29;
+        --bg-panel: #1a1740;
+        --bg-panel-2: #221d52;
+        --cyan: #3fe0d0;
+        --pink: #ff4d97;
+        --gold: #ffc94a;
+        --lime: #8cff6b;
+        --violet: #8c6bff;
+        --ink: #f4f2ff;
+        --ink-dim: #b3add9;
+        --line: rgba(255, 255, 255, 0.08);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background:
+          radial-gradient(
+            circle at 15% 10%,
+            rgba(140, 107, 255, 0.25),
+            transparent 40%
+          ),
+          radial-gradient(
+            circle at 85% 20%,
+            rgba(63, 224, 208, 0.18),
+            transparent 45%
+          ),
+          radial-gradient(
+            circle at 50% 90%,
+            rgba(255, 77, 151, 0.15),
+            transparent 50%
+          ),
+          var(--bg-deep);
+        color: var(--ink);
+        font-family: "Inter", sans-serif;
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+      h1,
+      h2,
+      h3,
+      .display {
+        font-family: "Space Grotesk", sans-serif;
+      }
+      #app {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 20px 60px;
+      }
+
+      /* ---------- NAV ---------- */
+      nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 4px;
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        background: linear-gradient(
+          180deg,
+          rgba(16, 14, 41, 0.95),
+          rgba(16, 14, 41, 0.85)
+        );
+        backdrop-filter: blur(8px);
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        font-size: 22px;
+        letter-spacing: -0.02em;
+        cursor: pointer;
+      }
+      .logo-mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, var(--pink), var(--violet));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        box-shadow: 0 0 20px rgba(255, 77, 151, 0.5);
+      }
+      .nav-right {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .online-pill {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--bg-panel);
+        border: 1px solid var(--line);
+        padding: 8px 14px;
+        border-radius: 999px;
+        font-size: 13px;
+        color: var(--ink-dim);
+      }
+      .online-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--lime);
+        box-shadow: 0 0 8px var(--lime);
+        animation: pulse 1.8s infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.5;
+          transform: scale(0.8);
+        }
+      }
+      .nav-btn {
+        background: var(--bg-panel);
+        border: 1px solid var(--line);
+        color: var(--ink);
+        padding: 9px 16px;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition:
+          transform 0.15s ease,
+          border-color 0.15s ease;
+      }
+      .nav-btn:hover {
+        transform: translateY(-2px);
+        border-color: var(--cyan);
+      }
+      .avatar-chip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--bg-panel);
+        border: 1px solid var(--line);
+        padding: 6px 12px 6px 6px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .avatar-circle {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--cyan), var(--violet));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+      }
+
+      /* ---------- SCREENS ---------- */
+      .screen {
+        display: none;
+        animation: fadein 0.35s ease;
+      }
+      .screen.active {
+        display: block;
+      }
+      @keyframes fadein {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* ---------- HERO ---------- */
+      .hero {
+        text-align: center;
+        padding: 50px 10px 30px;
+      }
+      .hero h1 {
+        font-size: 52px;
+        line-height: 1.05;
+        margin: 0 0 14px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      .hero h1 span {
+        color: var(--pink);
+      }
+      .hero p {
+        color: var(--ink-dim);
+        font-size: 17px;
+        max-width: 520px;
+        margin: 0 auto 26px;
+      }
+      .stat-row {
+        display: flex;
+        justify-content: center;
+        gap: 34px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      .stat {
+        text-align: center;
+      }
+      .stat .num {
+        font-family: "Space Grotesk";
+        font-size: 26px;
+        font-weight: 700;
+        color: var(--gold);
+      }
+      .stat .lbl {
+        font-size: 12px;
+        color: var(--ink-dim);
+        margin-top: 2px;
+      }
+
+      /* ---------- GAME CARDS ---------- */
+      .section-title {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin: 40px 0 16px;
+      }
+      .section-title h2 {
+        font-size: 22px;
+        margin: 0;
+      }
+      .link-btn {
+        color: var(--cyan);
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        background: none;
+        border: none;
+      }
+      .game-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 18px;
+      }
+      .game-card {
+        background: linear-gradient(160deg, var(--bg-panel), var(--bg-panel-2));
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 24px;
+        cursor: pointer;
+        position: relative;
+        overflow: hidden;
+        transition:
+          transform 0.2s ease,
+          box-shadow 0.2s ease;
+      }
+      .game-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+      }
+      .game-card.locked {
+        cursor: default;
+        opacity: 0.55;
+      }
+      .game-card.locked:hover {
+        transform: none;
+        box-shadow: none;
+      }
+      .game-emoji {
+        font-size: 44px;
+        margin-bottom: 10px;
+        display: block;
+      }
+      .game-card h3 {
+        margin: 0 0 6px;
+        font-size: 19px;
+      }
+      .game-card p {
+        margin: 0;
+        font-size: 13px;
+        color: var(--ink-dim);
+      }
+      .badge-soon {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        color: var(--ink-dim);
+      }
+      .badge-live {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        background: rgba(140, 255, 107, 0.15);
+        color: var(--lime);
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      /* ---------- LEADERBOARD PREVIEW / FULL ---------- */
+      .lb-panel {
+        background: var(--bg-panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 6px;
+      }
+      .lb-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 12px 16px;
+        border-radius: 12px;
+      }
+      .lb-row.me {
+        background: rgba(63, 224, 208, 0.08);
+        border: 1px solid rgba(63, 224, 208, 0.3);
+      }
+      .lb-rank {
+        width: 28px;
+        font-family: "Space Grotesk";
+        font-weight: 700;
+        color: var(--ink-dim);
+        text-align: center;
+      }
+      .lb-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--pink), var(--violet));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        flex-shrink: 0;
+      }
+      .lb-name {
+        flex: 1;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .lb-sub {
+        font-size: 11px;
+        color: var(--ink-dim);
+        font-weight: 400;
+      }
+      .lb-xp {
+        font-family: "Space Grotesk";
+        font-weight: 700;
+        color: var(--gold);
+        font-size: 15px;
+        white-space: nowrap;
+      }
+
+      /* ---------- SETUP MODAL ---------- */
+      .overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 7, 20, 0.7);
+        backdrop-filter: blur(4px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+      }
+      .modal {
+        background: var(--bg-panel);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 34px;
+        max-width: 400px;
+        width: 90%;
+        text-align: center;
+      }
+      .modal h2 {
+        margin-top: 0;
+      }
+      .avatar-pick {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+        margin: 18px 0;
+      }
+      .avatar-opt {
+        width: 46px;
+        height: 46px;
+        border-radius: 12px;
+        background: var(--bg-panel-2);
+        border: 2px solid transparent;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        cursor: pointer;
+      }
+      .avatar-opt.selected {
+        border-color: var(--cyan);
+        box-shadow: 0 0 12px rgba(63, 224, 208, 0.5);
+      }
+      input[type="text"] {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--bg-deep);
+        color: var(--ink);
+        font-size: 15px;
+        margin-bottom: 16px;
+        font-family: inherit;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, var(--pink), var(--violet));
+        color: white;
+        border: none;
+        padding: 13px 26px;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 15px;
+        cursor: pointer;
+        width: 100%;
+        box-shadow: 0 8px 20px rgba(255, 77, 151, 0.35);
+        transition: transform 0.15s ease;
+      }
+      .btn-primary:hover {
+        transform: translateY(-2px);
+      }
+      .btn-secondary {
+        background: var(--bg-panel-2);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        padding: 12px 22px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+        width: 100%;
+        margin-top: 10px;
+      }
+
+      /* ---------- LOBBY / SEARCHING ---------- */
+      .lobby-wrap {
+        text-align: center;
+        padding: 70px 10px;
+      }
+      .radar {
+        width: 140px;
+        height: 140px;
+        margin: 0 auto 30px;
+        border-radius: 50%;
+        border: 2px solid var(--cyan);
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 50px;
+      }
+      .radar::before,
+      .radar::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 2px solid var(--cyan);
+        animation: ripple 1.8s infinite;
+      }
+      .radar::after {
+        animation-delay: 0.9s;
+      }
+      @keyframes ripple {
+        0% {
+          transform: scale(1);
+          opacity: 0.8;
+        }
+        100% {
+          transform: scale(1.8);
+          opacity: 0;
+        }
+      }
+      .lobby-wrap h2 {
+        font-size: 24px;
+        margin-bottom: 8px;
+      }
+      .lobby-wrap p {
+        color: var(--ink-dim);
+      }
+      .room-code-box {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--bg-panel);
+        border: 1px solid var(--line);
+        padding: 10px 18px;
+        border-radius: 12px;
+        font-family: "Space Grotesk";
+        font-size: 20px;
+        letter-spacing: 3px;
+        margin: 14px 0;
+      }
+
+      /* ---------- MATCH FOUND ---------- */
+      .vs-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 30px;
+        padding: 70px 10px;
+        text-align: center;
+      }
+      .vs-card {
+        background: var(--bg-panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 26px 30px;
+        animation: popin 0.5s ease;
+      }
+      @keyframes popin {
+        0% {
+          transform: scale(0.6);
+          opacity: 0;
+        }
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+      .vs-avatar {
+        width: 70px;
+        height: 70px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--cyan), var(--violet));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 34px;
+        margin: 0 auto 12px;
+      }
+      .vs-text {
+        font-family: "Space Grotesk";
+        font-size: 30px;
+        font-weight: 700;
+        color: var(--pink);
+      }
+
+      /* ---------- GAME SCREEN ---------- */
+      .game-wrap {
+        max-width: 460px;
+        margin: 0 auto;
+        padding: 20px 0;
+      }
+      .player-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--bg-panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px 16px;
+        margin-bottom: 10px;
+        transition: border-color 0.2s;
+      }
+      .player-card.active-turn {
+        border-color: var(--lime);
+        box-shadow: 0 0 16px rgba(140, 255, 107, 0.25);
+      }
+      .player-card .pc-avatar {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--pink), var(--violet));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+      }
+      .pc-info {
+        flex: 1;
+      }
+      .pc-name {
+        font-weight: 700;
+        font-size: 14px;
+      }
+      .pc-xp {
+        font-size: 12px;
+        color: var(--ink-dim);
+      }
+      .pc-symbol {
+        font-family: "Space Grotesk";
+        font-size: 24px;
+        font-weight: 700;
+      }
+      .turn-banner {
+        text-align: center;
+        font-size: 13px;
+        color: var(--ink-dim);
+        margin: 10px 0;
+        height: 16px;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin: 16px 0;
+      }
+      .cell {
+        aspect-ratio: 1;
+        background: var(--bg-panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "Space Grotesk";
+        font-size: 44px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+      .cell:hover:not(.filled) {
+        background: var(--bg-panel-2);
+      }
+      .cell.filled {
+        cursor: default;
+      }
+      .cell.x {
+        color: var(--cyan);
+      }
+      .cell.o {
+        color: var(--pink);
+      }
+      .cell.win {
+        background: rgba(255, 201, 74, 0.18);
+        border-color: var(--gold);
+      }
+
+      /* ---------- RESULT ---------- */
+      .result-wrap {
+        text-align: center;
+        padding: 60px 10px;
+      }
+      .result-emoji {
+        font-size: 70px;
+        margin-bottom: 6px;
+      }
+      .result-title {
+        font-family: "Space Grotesk";
+        font-size: 34px;
+        font-weight: 700;
+        margin: 0 0 8px;
+      }
+      .result-title.win {
+        color: var(--lime);
+      }
+      .result-title.lose {
+        color: var(--pink);
+      }
+      .result-title.draw {
+        color: var(--gold);
+      }
+      .xp-change {
+        font-size: 20px;
+        font-weight: 700;
+        font-family: "Space Grotesk";
+        margin: 14px 0 26px;
+      }
+      .xp-change.pos {
+        color: var(--lime);
+      }
+      .xp-change.neg {
+        color: var(--pink);
+      }
+      .result-actions {
+        display: flex;
+        gap: 12px;
+        max-width: 340px;
+        margin: 0 auto;
+      }
+
+      /* ---------- PROFILE ---------- */
+      .profile-header {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        background: var(--bg-panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 28px;
+      }
+      .profile-avatar-lg {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--cyan), var(--violet));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 38px;
+        flex-shrink: 0;
+      }
+      .profile-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        gap: 14px;
+        margin-top: 24px;
+      }
+      .pstat {
+        background: var(--bg-panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 16px;
+        text-align: center;
+      }
+      .pstat .n {
+        font-family: "Space Grotesk";
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--cyan);
+      }
+      .pstat .l {
+        font-size: 11px;
+        color: var(--ink-dim);
+        margin-top: 4px;
+      }
+      .rank-tag {
+        display: inline-block;
+        background: rgba(255, 201, 74, 0.15);
+        color: var(--gold);
+        padding: 5px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        margin-top: 6px;
+      }
+
+      @media (max-width: 600px) {
+        .hero h1 {
+          font-size: 36px;
+        }
+        .vs-wrap {
+          flex-direction: column;
+          gap: 14px;
+        }
+        .vs-text {
+          transform: rotate(90deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <nav>
+        <div class="logo" onclick="goHome()">
+          <div class="logo-mark">🎮</div>
+          Arena
+        </div>
+        <div class="nav-right">
+          <div class="online-pill">
+            <span class="online-dot"></span
+            ><span id="onlineCount">–</span> online now
+          </div>
+          <button class="nav-btn" onclick="showScreen('leaderboard')">
+            🏆 Leaderboard
+          </button>
+          <div
+            class="avatar-chip"
+            id="navProfileChip"
+            onclick="showScreen('profile')"
+          >
+            <div class="avatar-circle" id="navAvatar">🦁</div>
+            <span id="navName" style="font-size: 13px; font-weight: 600"></span>
+          </div>
+        </div>
+      </nav>
+
+      <!-- LANDING -->
+      <div class="screen active" id="screen-home">
+        <div class="hero">
+          <h1>Play. Compete. <span>Climb.</span></h1>
+          <p>
+            Real-time multiplayer games against players from every corner of
+            India — Gujarat to Assam, Kerala to Kashmir.
+          </p>
+          <div class="stat-row">
+            <div class="stat">
+              <div class="num" id="heroOnline">–</div>
+              <div class="lbl">players online</div>
+            </div>
+            <div class="stat">
+              <div class="num" id="heroMatches">–</div>
+              <div class="lbl">matches played</div>
+            </div>
+            <div class="stat">
+              <div class="num" id="heroTop">–</div>
+              <div class="lbl">top XP</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title"><h2>Choose your game</h2></div>
+        <div class="game-grid">
+          <div class="game-card" onclick="openGameMenu('tictactoe')">
+            <span class="badge-live">● LIVE</span>
+            <span class="game-emoji">❌⭕</span>
+            <h3>Tic-Tac-Toe</h3>
+            <p>
+              Fast, sharp, 1-minute duels. Quick match or challenge a friend by
+              code.
+            </p>
+          </div>
+          <div class="game-card locked">
+            <span class="badge-soon">Coming soon</span>
+            <span class="game-emoji">♟️</span>
+            <h3>Chess</h3>
+            <p>
+              Full multiplayer chess, arriving once Tic-Tac-Toe's foundation is
+              rock solid.
+            </p>
+          </div>
+          <div class="game-card locked">
+            <span class="badge-soon">Coming soon</span>
+            <span class="game-emoji">🐍</span>
+            <h3>Snakes & Ladders</h3>
+            <p>Classic luck-based fun with friends across the map.</p>
+          </div>
+          <div class="game-card locked">
+            <span class="badge-soon">Coming soon</span>
+            <span class="game-emoji">🔴🟡</span>
+            <h3>Connect Four</h3>
+            <p>Drop, think, block, win.</p>
+          </div>
+        </div>
+
+        <div class="section-title">
+          <h2>🏆 Global Leaderboard</h2>
+          <button class="link-btn" onclick="showScreen('leaderboard')">
+            View full →
+          </button>
+        </div>
+        <div class="lb-panel" id="lbPreview">
+          <div style="padding: 20px; color: var(--ink-dim); font-size: 13px">
+            Loading leaderboard…
+          </div>
+        </div>
+      </div>
+
+      <!-- GAME MENU (quick match vs create/join room) -->
+      <div class="screen" id="screen-gamemenu">
+        <div class="lobby-wrap">
+          <span class="game-emoji">❌⭕</span>
+          <h2>Tic-Tac-Toe</h2>
+          <p style="margin-bottom: 26px">
+            Jump into a quick match, or play a friend privately.
+          </p>
+          <div style="max-width: 320px; margin: 0 auto">
+            <button class="btn-primary" onclick="startQuickMatch()">
+              ⚡ Find Opponent
+            </button>
+            <button class="btn-secondary" onclick="createPrivateRoom()">
+              🔗 Create Private Room
+            </button>
+            <div style="display: flex; gap: 8px; margin-top: 10px">
+              <input
+                type="text"
+                id="joinCodeInput"
+                placeholder="Enter room code"
+                style="margin-bottom: 0; text-transform: uppercase"
+              />
+              <button
+                class="btn-secondary"
+                style="width: auto; white-space: nowrap; margin-top: 0"
+                onclick="joinPrivateRoom()"
+              >
+                Join
+              </button>
+            </div>
+            <button class="btn-secondary" onclick="showScreen('home')">
+              ← Back
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SEARCHING -->
+      <div class="screen" id="screen-searching">
+        <div class="lobby-wrap">
+          <div class="radar">🔍</div>
+          <h2>Finding an opponent…</h2>
+          <p id="searchSub">Scanning the arena across India</p>
+          <button
+            class="btn-secondary"
+            style="max-width: 220px; margin: 26px auto 0"
+            onclick="cancelSearch()"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+
+      <!-- PRIVATE ROOM WAITING -->
+      <div class="screen" id="screen-privatewait">
+        <div class="lobby-wrap">
+          <div class="radar">🔗</div>
+          <h2>Waiting for your friend…</h2>
+          <p>Share this code with them:</p>
+          <div class="room-code-box">
+            <span id="privateRoomCode">------</span>
+          </div>
+          <p style="font-size: 13px">
+            They can enter it under "Create Private Room → Join"
+          </p>
+          <button
+            class="btn-secondary"
+            style="max-width: 220px; margin: 20px auto 0"
+            onclick="cancelSearch()"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+
+      <!-- MATCH FOUND -->
+      <div class="screen" id="screen-matchfound">
+        <div class="vs-wrap">
+          <div class="vs-card">
+            <div class="vs-avatar" id="mfAvatar1">🦁</div>
+            <div id="mfName1" style="font-weight: 700"></div>
+          </div>
+          <div class="vs-text">VS</div>
+          <div class="vs-card">
+            <div class="vs-avatar" id="mfAvatar2">🐯</div>
+            <div id="mfName2" style="font-weight: 700"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GAME -->
+      <div class="screen" id="screen-game">
+        <div class="game-wrap">
+          <div class="player-card" id="opponentCard">
+            <div class="pc-avatar" id="oppAvatar">🐯</div>
+            <div class="pc-info">
+              <div class="pc-name" id="oppName">Opponent</div>
+              <div class="pc-xp" id="oppXp">0 XP</div>
+            </div>
+            <div class="pc-symbol" id="oppSymbol">O</div>
+          </div>
+          <div class="turn-banner" id="turnBanner">Your turn</div>
+          <div class="board" id="board"></div>
+          <div class="player-card active-turn" id="meCard">
+            <div class="pc-avatar" id="meAvatar">🦁</div>
+            <div class="pc-info">
+              <div class="pc-name" id="meName">You</div>
+              <div class="pc-xp" id="meXp">0 XP</div>
+            </div>
+            <div class="pc-symbol" id="meSymbol">X</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RESULT -->
+      <div class="screen" id="screen-result">
+        <div class="result-wrap">
+          <div class="result-emoji" id="resultEmoji">🏆</div>
+          <div class="result-title win" id="resultTitle">Victory!</div>
+          <p id="resultSub">Nice work — that was a clean win.</p>
+          <div class="xp-change pos" id="xpChange">+25 XP</div>
+          <div class="result-actions">
+            <button class="btn-primary" onclick="openGameMenu('tictactoe')">
+              Play Again
+            </button>
+            <button class="btn-secondary" onclick="showScreen('leaderboard')">
+              Leaderboard
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- LEADERBOARD -->
+      <div class="screen" id="screen-leaderboard">
+        <div class="section-title">
+          <h2>🏆 Global Leaderboard</h2>
+          <button class="link-btn" onclick="showScreen('home')">← Home</button>
+        </div>
+        <div class="lb-panel" id="lbFull">
+          <div style="padding: 20px; color: var(--ink-dim); font-size: 13px">
+            Loading…
+          </div>
+        </div>
+      </div>
+
+      <!-- PROFILE -->
+      <div class="screen" id="screen-profile">
+        <div class="section-title">
+          <h2>Your Profile</h2>
+          <button class="link-btn" onclick="showScreen('home')">← Home</button>
+        </div>
+        <div class="profile-header">
+          <div class="profile-avatar-lg" id="profAvatar">🦁</div>
+          <div>
+            <div style="font-size: 22px; font-weight: 700" id="profName">
+              Player
+            </div>
+            <div class="rank-tag" id="profRank">Rookie</div>
+          </div>
+        </div>
+        <div class="profile-stats">
+          <div class="pstat">
+            <div class="n" id="statXp">0</div>
+            <div class="l">XP Rating</div>
+          </div>
+          <div class="pstat">
+            <div class="n" id="statPlayed">0</div>
+            <div class="l">Games Played</div>
+          </div>
+          <div class="pstat">
+            <div class="n" id="statWins">0</div>
+            <div class="l">Wins</div>
+          </div>
+          <div class="pstat">
+            <div class="n" id="statLosses">0</div>
+            <div class="l">Losses</div>
+          </div>
+          <div class="pstat">
+            <div class="n" id="statWinPct">0%</div>
+            <div class="l">Win Rate</div>
+          </div>
+          <div class="pstat">
+            <div class="n" id="statGlobalRank">–</div>
+            <div class="l">Global Rank</div>
+          </div>
+        </div>
+        <button
+          class="btn-secondary"
+          style="max-width: 260px; margin-top: 26px"
+          onclick="editProfile()"
+        >
+          Edit name / avatar
+        </button>
+      </div>
+    </div>
+
+    <!-- SETUP MODAL -->
+    <div class="overlay" id="setupOverlay" style="display: none">
+      <div class="modal">
+        <h2>Welcome to Arena</h2>
+        <p style="color: var(--ink-dim); font-size: 14px; margin-top: -10px">
+          Pick a name and avatar to start playing
+        </p>
+        <input
+          type="text"
+          id="setupName"
+          placeholder="Your player name"
+          maxlength="16"
+        />
+        <div class="avatar-pick" id="avatarPick"></div>
+        <button class="btn-primary" onclick="saveProfile()">
+          Enter the Arena
+        </button>
+      </div>
+    </div>
+
+    <script>
+      const AVATARS = [
+        "🦁",
+        "🐯",
+        "🐉",
+        "🦅",
+        "🦊",
+        "🐺",
+        "🐸",
+        "🦖",
+        "🐙",
+        "🦈",
+        "🐧",
+        "🦄",
+      ];
+      const RANKS = [
+        { min: 0, name: "Rookie", badge: "🎮" },
+        { min: 500, name: "Fighter", badge: "⚔️" },
+        { min: 1000, name: "Warrior", badge: "⚡" },
+        { min: 1600, name: "Champion", badge: "🔥" },
+        { min: 2200, name: "Legend", badge: "👑" },
+      ];
+      const WIN_LINES = [
+        [0, 1, 2],
+        [3, 4, 5],
+        [6, 7, 8],
+        [0, 3, 6],
+        [1, 4, 7],
+        [2, 5, 8],
+        [0, 4, 8],
+        [2, 4, 6],
+      ];
+
+      let myId = null,
+        myProfile = null;
+      let currentRoomId = null,
+        roomPollTimer = null,
+        queuePollTimer = null,
+        presenceTimer = null,
+        listPollTimer = null;
+      let lastRoomSnapshot = null;
+
+      function uid() {
+        return (
+          "p_" +
+          Math.random().toString(36).slice(2, 10) +
+          Date.now().toString(36)
+        );
+      }
+
+      async function sget(key, shared) {
+        try {
+          const r = await window.storage.get(key, !!shared);
+          return r ? r.value : null;
+        } catch (e) {
+          return null;
+        }
+      }
+      async function sset(key, value, shared) {
+        try {
+          await window.storage.set(
+            key,
+            typeof value === "string" ? value : JSON.stringify(value),
+            !!shared,
+          );
+        } catch (e) {
+          console.error("storage set failed", key, e);
+        }
+      }
+      async function sdel(key, shared) {
+        try {
+          await window.storage.delete(key, !!shared);
+        } catch (e) {}
+      }
+      async function slist(prefix, shared) {
+        try {
+          const r = await window.storage.list(prefix, !!shared);
+          return r ? r.keys : [];
+        } catch (e) {
+          return [];
+        }
+      }
+
+      function rankFor(xp) {
+        let r = RANKS[0];
+        for (const rk of RANKS) {
+          if (xp >= rk.min) r = rk;
+        }
+        return r;
+      }
+
+      /* ---------------- BOOT ---------------- */
+      async function boot() {
+        const stored = await sget("profile", false);
+        if (stored) {
+          myProfile = JSON.parse(stored);
+          myId = myProfile.id;
+          applyProfileToNav();
+        } else {
+          myId = uid();
+          document.getElementById("setupOverlay").style.display = "flex";
+          renderAvatarPicker();
+        }
+        startPresenceLoop();
+        refreshLeaderboardData();
+        setInterval(refreshLeaderboardData, 6000);
+      }
+
+      function renderAvatarPicker() {
+        const wrap = document.getElementById("avatarPick");
+        wrap.innerHTML = "";
+        AVATARS.forEach((a, i) => {
+          const d = document.createElement("div");
+          d.className = "avatar-opt" + (i === 0 ? " selected" : "");
+          d.textContent = a;
+          d.onclick = () => {
+            document
+              .querySelectorAll(".avatar-opt")
+              .forEach((x) => x.classList.remove("selected"));
+            d.classList.add("selected");
+          };
+          wrap.appendChild(d);
+        });
+      }
+
+      async function saveProfile() {
+        const name =
+          document.getElementById("setupName").value.trim() ||
+          "Player" + Math.floor(Math.random() * 9999);
+        const selected = document.querySelector(".avatar-opt.selected");
+        const avatar = selected ? selected.textContent : AVATARS[0];
+        const existing = myProfile ? myProfile : {};
+        myProfile = {
+          id: myId,
+          name,
+          avatar,
+          xp: existing.xp || 0,
+          wins: existing.wins || 0,
+          losses: existing.losses || 0,
+          draws: existing.draws || 0,
+          played: existing.played || 0,
+        };
+        await sset("profile", JSON.stringify(myProfile), false);
+        await sset("leaderboard:" + myId, myProfile, true);
+        document.getElementById("setupOverlay").style.display = "none";
+        applyProfileToNav();
+        refreshLeaderboardData();
+      }
+
+      function editProfile() {
+        document.getElementById("setupOverlay").style.display = "flex";
+        document.getElementById("setupName").value = myProfile.name;
+        renderAvatarPicker();
+        document.querySelectorAll(".avatar-opt").forEach((x) => {
+          x.classList.toggle("selected", x.textContent === myProfile.avatar);
+        });
+      }
+
+      function applyProfileToNav() {
+        document.getElementById("navAvatar").textContent = myProfile.avatar;
+        document.getElementById("navName").textContent = myProfile.name;
+        renderProfileScreen();
+      }
+
+      /* ---------------- PRESENCE / ONLINE COUNT ---------------- */
+      async function startPresenceLoop() {
+        const beat = async () => {
+          await sset(
+            "presence:" + myId,
+            JSON.stringify({ t: Date.now() }),
+            true,
+          );
+        };
+        await beat();
+        presenceTimer = setInterval(beat, 8000);
+        await refreshOnlineCount();
+        setInterval(refreshOnlineCount, 10000);
+      }
+      async function refreshOnlineCount() {
+        const keys = await slist("presence:", true);
+        let count = 0;
+        const now = Date.now();
+        for (const k of keys) {
+          try {
+            const r = await window.storage.get(k, true);
+            if (r) {
+              const v = JSON.parse(r.value);
+              if (now - v.t < 25000) count++;
+            }
+          } catch (e) {}
+        }
+        if (count < 1) count = 1;
+        document.getElementById("onlineCount").textContent = count;
+        document.getElementById("heroOnline").textContent = count;
+      }
+
+      /* ---------------- LEADERBOARD ---------------- */
+      async function fetchLeaderboard() {
+        const keys = await slist("leaderboard:", true);
+        const entries = [];
+        for (const k of keys) {
+          try {
+            const r = await window.storage.get(k, true);
+            if (r) entries.push(JSON.parse(r.value));
+          } catch (e) {}
+        }
+        entries.sort((a, b) => (b.xp || 0) - (a.xp || 0));
+        return entries;
+      }
+      async function refreshLeaderboardData() {
+        const entries = await fetchLeaderboard();
+        renderLbList(entries, document.getElementById("lbPreview"), 5);
+        renderLbList(entries, document.getElementById("lbFull"), 50);
+        document.getElementById("heroMatches").textContent = entries.reduce(
+          (s, e) => s + (e.played || 0),
+          0,
+        );
+        document.getElementById("heroTop").textContent = entries.length
+          ? entries[0].xp
+          : 0;
+        renderProfileScreen(entries);
+      }
+      function medalFor(rank) {
+        return rank === 0 ? "👑" : rank === 1 ? "🔥" : rank === 2 ? "⚡" : "🎮";
+      }
+      function renderLbList(entries, container, limit) {
+        if (!entries.length) {
+          container.innerHTML =
+            '<div style="padding:20px;color:var(--ink-dim);font-size:13px;">No players yet — be the first to compete!</div>';
+          return;
+        }
+        container.innerHTML = "";
+        entries.slice(0, limit).forEach((e, i) => {
+          const row = document.createElement("div");
+          row.className = "lb-row" + (e.id === myId ? " me" : "");
+          const winPct = e.played ? Math.round((e.wins / e.played) * 100) : 0;
+          row.innerHTML = `<div class="lb-rank">${i + 1}</div>
+      <div class="lb-avatar">${e.avatar || "🎮"}</div>
+      <div class="lb-name">${medalFor(i)} ${escapeHtml(e.name)}<div class="lb-sub">${e.played || 0} played · ${winPct}% win rate</div></div>
+      <div class="lb-xp">${e.xp || 0} XP</div>`;
+          container.appendChild(row);
+        });
+      }
+      function escapeHtml(s) {
+        const d = document.createElement("div");
+        d.textContent = s;
+        return d.innerHTML;
+      }
+
+      async function renderProfileScreen(entriesMaybe) {
+        if (!myProfile) return;
+        const entries = entriesMaybe || (await fetchLeaderboard());
+        const mine = entries.find((e) => e.id === myId) || myProfile;
+        document.getElementById("profAvatar").textContent = mine.avatar;
+        document.getElementById("profName").textContent = mine.name;
+        const rank = rankFor(mine.xp || 0);
+        document.getElementById("profRank").textContent =
+          rank.badge + " " + rank.name;
+        document.getElementById("statXp").textContent = mine.xp || 0;
+        document.getElementById("statPlayed").textContent = mine.played || 0;
+        document.getElementById("statWins").textContent = mine.wins || 0;
+        document.getElementById("statLosses").textContent = mine.losses || 0;
+        document.getElementById("statWinPct").textContent =
+          (mine.played ? Math.round((mine.wins / mine.played) * 100) : 0) + "%";
+        const idx = entries.findIndex((e) => e.id === myId);
+        document.getElementById("statGlobalRank").textContent =
+          idx >= 0 ? "#" + (idx + 1) : "–";
+      }
+
+      /* ---------------- NAVIGATION ---------------- */
+      function showScreen(name) {
+        document
+          .querySelectorAll(".screen")
+          .forEach((s) => s.classList.remove("active"));
+        document.getElementById("screen-" + name).classList.add("active");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      function goHome() {
+        cancelSearch();
+        showScreen("home");
+      }
+      function openGameMenu(game) {
+        showScreen("gamemenu");
+      }
+
+      /* ---------------- QUICK MATCH ---------------- */
+      async function startQuickMatch() {
+        showScreen("searching");
+        document.getElementById("searchSub").textContent =
+          "Scanning the arena across India";
+        const queueKey = "queue:tictactoe";
+        const raw = await sget(queueKey, true);
+        let queue = raw ? JSON.parse(raw) : [];
+        const now = Date.now();
+        queue = queue.filter((p) => p.id !== myId && now - p.ts < 30000);
+
+        if (queue.length > 0) {
+          // match with the first waiting player
+          const opponent = queue.shift();
+          await sset(queueKey, queue, true);
+          const roomId = "r_" + Math.random().toString(36).slice(2, 10);
+          const room = {
+            id: roomId,
+            game: "tictactoe",
+            players: {
+              X: opponent,
+              O: { id: myId, name: myProfile.name, avatar: myProfile.avatar },
+            },
+            board: Array(9).fill(null),
+            turn: opponent.id,
+            status: "active",
+            winner: null,
+            winLine: null,
+            moveCount: 0,
+          };
+          await sset("room:" + roomId, room, true);
+          await sset("matched:" + opponent.id, roomId, true);
+          enterRoom(roomId, "O");
+        } else {
+          // add self to queue and wait
+          queue.push({
+            id: myId,
+            name: myProfile.name,
+            avatar: myProfile.avatar,
+            ts: now,
+          });
+          await sset(queueKey, queue, true);
+          queuePollTimer = setInterval(async () => {
+            const matched = await sget("matched:" + myId, true);
+            if (matched) {
+              clearInterval(queuePollTimer);
+              await sdel("matched:" + myId, true);
+              enterRoom(matched, "X");
+            }
+          }, 1500);
+        }
+      }
+
+      async function cancelSearch() {
+        if (queuePollTimer) clearInterval(queuePollTimer);
+        if (myId) {
+          const raw = await sget("queue:tictactoe", true);
+          if (raw) {
+            let queue = JSON.parse(raw).filter((p) => p.id !== myId);
+            await sset("queue:tictactoe", queue, true);
+          }
+        }
+        showScreen("gamemenu");
+      }
+
+      /* ---------------- PRIVATE ROOMS ---------------- */
+      function genCode() {
+        return Math.random().toString(36).slice(2, 8).toUpperCase();
+      }
+
+      async function createPrivateRoom() {
+        const code = genCode();
+        const roomId = "priv_" + code;
+        const room = {
+          id: roomId,
+          game: "tictactoe",
+          code,
+          players: {
+            X: { id: myId, name: myProfile.name, avatar: myProfile.avatar },
+            O: null,
+          },
+          board: Array(9).fill(null),
+          turn: myId,
+          status: "waiting",
+          winner: null,
+          winLine: null,
+          moveCount: 0,
+        };
+        await sset("room:" + roomId, room, true);
+        document.getElementById("privateRoomCode").textContent = code;
+        showScreen("privatewait");
+        currentRoomId = roomId;
+        queuePollTimer = setInterval(async () => {
+          const r = await sget("room:" + roomId, true);
+          if (r) {
+            const parsed = JSON.parse(r);
+            if (parsed.status === "active") {
+              clearInterval(queuePollTimer);
+              enterRoom(roomId, "X");
+            }
+          }
+        }, 1500);
+      }
+
+      async function joinPrivateRoom() {
+        const code = document
+          .getElementById("joinCodeInput")
+          .value.trim()
+          .toUpperCase();
+        if (!code) return;
+        const roomId = "priv_" + code;
+        const raw = await sget("room:" + roomId, true);
+        if (!raw) {
+          alert("Room not found. Check the code and try again.");
+          return;
+        }
+        const room = JSON.parse(raw);
+        if (room.status !== "waiting") {
+          alert("This room is no longer available.");
+          return;
+        }
+        room.players.O = {
+          id: myId,
+          name: myProfile.name,
+          avatar: myProfile.avatar,
+        };
+        room.status = "active";
+        await sset("room:" + roomId, room, true);
+        enterRoom(roomId, "O");
+      }
+
+      /* ---------------- ENTER ROOM / MATCH FOUND ---------------- */
+      async function enterRoom(roomId, mySymbol) {
+        currentRoomId = roomId;
+        window.mySymbol = mySymbol;
+        const raw = await sget("room:" + roomId, true);
+        const room = JSON.parse(raw);
+        const me = room.players[mySymbol];
+        const opp = room.players[mySymbol === "X" ? "O" : "X"];
+
+        document.getElementById("mfAvatar1").textContent = me.avatar;
+        document.getElementById("mfName1").textContent = me.name;
+        document.getElementById("mfAvatar2").textContent = opp.avatar;
+        document.getElementById("mfName2").textContent = opp.name;
+        showScreen("matchfound");
+
+        setTimeout(() => {
+          setupGameScreen(room, mySymbol);
+          showScreen("game");
+          startRoomPolling(roomId);
+        }, 1600);
+      }
+
+      /* ---------------- GAME SCREEN ---------------- */
+      function setupGameScreen(room, mySymbol) {
+        const oppSymbol = mySymbol === "X" ? "O" : "X";
+        const me = room.players[mySymbol];
+        const opp = room.players[oppSymbol];
+        document.getElementById("meAvatar").textContent = me.avatar;
+        document.getElementById("meName").textContent = me.name + " (You)";
+        document.getElementById("meSymbol").textContent = mySymbol;
+        document.getElementById("meSymbol").style.color =
+          mySymbol === "X" ? "var(--cyan)" : "var(--pink)";
+        document.getElementById("oppAvatar").textContent = opp.avatar;
+        document.getElementById("oppName").textContent = opp.name;
+        document.getElementById("oppSymbol").textContent = oppSymbol;
+        document.getElementById("oppSymbol").style.color =
+          oppSymbol === "X" ? "var(--cyan)" : "var(--pink)";
+        fetchLeaderboard().then((entries) => {
+          const meE = entries.find((e) => e.id === me.id);
+          const oppE = entries.find((e) => e.id === opp.id);
+          document.getElementById("meXp").textContent =
+            (meE ? meE.xp : 0) + " XP";
+          document.getElementById("oppXp").textContent =
+            (oppE ? oppE.xp : 0) + " XP";
+        });
+        renderBoard(room, mySymbol);
+      }
+
+      function renderBoard(room, mySymbol) {
+        const boardEl = document.getElementById("board");
+        boardEl.innerHTML = "";
+        const isMyTurn = room.turn === myId && room.status === "active";
+        room.board.forEach((val, idx) => {
+          const c = document.createElement("div");
+          c.className = "cell" + (val ? " filled " + val.toLowerCase() : "");
+          if (room.winLine && room.winLine.includes(idx))
+            c.classList.add("win");
+          c.textContent = val || "";
+          if (!val && isMyTurn && room.status === "active") {
+            c.onclick = () => makeMove(idx, mySymbol);
+          }
+          boardEl.appendChild(c);
+        });
+        document.getElementById("turnBanner").textContent =
+          room.status !== "active"
+            ? ""
+            : isMyTurn
+              ? "Your turn"
+              : "Opponent's turn…";
+        document
+          .getElementById("meCard")
+          .classList.toggle("active-turn", isMyTurn);
+        document
+          .getElementById("opponentCard")
+          .classList.toggle(
+            "active-turn",
+            !isMyTurn && room.status === "active",
+          );
+      }
+
+      function checkWinner(board) {
+        for (const line of WIN_LINES) {
+          const [a, b, c] = line;
+          if (board[a] && board[a] === board[b] && board[a] === board[c])
+            return { symbol: board[a], line };
+        }
+        if (board.every((c) => c)) return { symbol: "draw", line: null };
+        return null;
+      }
+
+      async function makeMove(idx, mySymbol) {
+        const raw = await sget("room:" + currentRoomId, true);
+        const room = JSON.parse(raw);
+        if (room.board[idx] || room.turn !== myId || room.status !== "active")
+          return;
+        room.board[idx] = mySymbol;
+        room.moveCount++;
+        const result = checkWinner(room.board);
+        if (result) {
+          room.status = "finished";
+          room.winner =
+            result.symbol === "draw"
+              ? "draw"
+              : result.symbol === mySymbol
+                ? myId
+                : room.players[result.symbol === "X" ? "X" : "O"].id;
+          room.winLine = result.line;
+        } else {
+          room.turn = mySymbol === "X" ? room.players.O.id : room.players.X.id;
+        }
+        await sset("room:" + currentRoomId, room, true);
+        renderBoard(room, mySymbol);
+        if (room.status === "finished") handleGameEnd(room, mySymbol);
+      }
+
+      function startRoomPolling(roomId) {
+        if (roomPollTimer) clearInterval(roomPollTimer);
+        roomPollTimer = setInterval(async () => {
+          const raw = await sget("room:" + roomId, true);
+          if (!raw) return;
+          const room = JSON.parse(raw);
+          const snap = JSON.stringify(room.board) + room.turn + room.status;
+          if (snap === lastRoomSnapshot) return;
+          lastRoomSnapshot = snap;
+          renderBoard(room, window.mySymbol);
+          if (room.status === "finished") {
+            clearInterval(roomPollTimer);
+            handleGameEnd(room, window.mySymbol);
+          }
+        }, 1200);
+      }
+
+      let resultHandled = false;
+      async function handleGameEnd(room, mySymbol) {
+        if (resultHandled) return;
+        resultHandled = true;
+        if (roomPollTimer) clearInterval(roomPollTimer);
+
+        const iWon = room.winner === myId;
+        const isDraw = room.winner === "draw";
+        const opp = room.players[mySymbol === "X" ? "O" : "X"];
+
+        let delta = 0;
+        const my = { ...myProfile };
+        my.played = (my.played || 0) + 1;
+        if (isDraw) {
+          delta = 5;
+          my.draws = (my.draws || 0) + 1;
+        } else if (iWon) {
+          delta = 25;
+          my.wins = (my.wins || 0) + 1;
+        } else {
+          delta = -10;
+          my.losses = (my.losses || 0) + 1;
+        }
+        my.xp = Math.max(0, (my.xp || 0) + delta);
+        myProfile = my;
+        await sset("profile", JSON.stringify(myProfile), false);
+        await sset("leaderboard:" + myId, myProfile, true);
+
+        document.getElementById("resultEmoji").textContent = isDraw
+          ? "🤝"
+          : iWon
+            ? "🏆"
+            : "💀";
+        document.getElementById("resultTitle").textContent = isDraw
+          ? "It's a Draw!"
+          : iWon
+            ? "Victory!"
+            : "Defeat";
+        document.getElementById("resultTitle").className =
+          "result-title " + (isDraw ? "draw" : iWon ? "win" : "lose");
+        document.getElementById("resultSub").textContent = isDraw
+          ? `Evenly matched against ${opp.name}.`
+          : iWon
+            ? `You beat ${opp.name}. Well played!`
+            : `${opp.name} got the better of you this time.`;
+        const xpEl = document.getElementById("xpChange");
+        xpEl.textContent = (delta >= 0 ? "+" : "") + delta + " XP";
+        xpEl.className = "xp-change " + (delta >= 0 ? "pos" : "neg");
+
+        showScreen("result");
+        refreshLeaderboardData();
+        resultHandled = false;
+      }
+
+      /* reset the "resultHandled" guard whenever leaving result screen naturally handled by function scope per game */
+      boot();
+    </script>
+  </body>
+</html>
