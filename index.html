@@ -1082,7 +1082,41 @@
       </div>
     </div>
 
+    <!-- Firebase: shared cloud database + anonymous auth for real cross-device multiplayer -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
     <script>
+      /* =========================================================
+   ARENA — FIREBASE MULTIPLAYER JAVASCRIPT
+   UI / HTML / CSS untouched
+   ========================================================= */
+
+      /* ---------------- CONFIG ---------------- */
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyALkP001EFoAmixfUDHG6dr8rPLY5jZyBU",
+        authDomain: "online-multiplayer-game-87d66.firebaseapp.com",
+        databaseURL:
+          "https://online-multiplayer-game-87d66-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "online-multiplayer-game-87d66",
+        storageBucket: "online-multiplayer-game-87d66.firebasestorage.app",
+        messagingSenderId: "448318086824",
+        appId: "1:448318086824:web:74c57d238eddced1332c9d",
+        measurementId: "G-EZ5SBVLWWZ",
+      };
+
+      if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+      }
+
+      const auth = firebase.auth();
+      const db = firebase.database();
+
+      /* =========================================================
+   CONSTANTS
+   ========================================================= */
+
       const AVATARS = [
         "🦁",
         "🐯",
@@ -1097,6 +1131,7 @@
         "🐧",
         "🦄",
       ];
+
       const RANKS = [
         { min: 0, name: "Rookie", badge: "🎮" },
         { min: 500, name: "Fighter", badge: "⚔️" },
@@ -1104,6 +1139,7 @@
         { min: 1600, name: "Champion", badge: "🔥" },
         { min: 2200, name: "Legend", badge: "👑" },
       ];
+
       const WIN_LINES = [
         [0, 1, 2],
         [3, 4, 5],
@@ -1115,461 +1151,1159 @@
         [2, 4, 6],
       ];
 
-      let myId = null,
-        myProfile = null;
-      let currentRoomId = null,
-        roomPollTimer = null,
-        queuePollTimer = null,
-        presenceTimer = null,
-        listPollTimer = null;
+      /* =========================================================
+   GLOBAL STATE
+   ========================================================= */
+
+      let myId = null;
+      let myProfile = null;
+
+      let currentRoomId = null;
+      let currentRoomListener = null;
+      let queueListener = null;
+      let privateRoomListener = null;
+      let presenceRef = null;
+
       let lastRoomSnapshot = null;
+      let resultHandled = false;
 
-      function uid() {
-        return (
-          "p_" +
-          Math.random().toString(36).slice(2, 10) +
-          Date.now().toString(36)
-        );
-      }
-
-      async function sget(key, shared) {
-        try {
-          const r = await window.storage.get(key, !!shared);
-          return r ? r.value : null;
-        } catch (e) {
-          return null;
-        }
-      }
-      async function sset(key, value, shared) {
-        try {
-          await window.storage.set(
-            key,
-            typeof value === "string" ? value : JSON.stringify(value),
-            !!shared,
-          );
-        } catch (e) {
-          console.error("storage set failed", key, e);
-        }
-      }
-      async function sdel(key, shared) {
-        try {
-          await window.storage.delete(key, !!shared);
-        } catch (e) {}
-      }
-      async function slist(prefix, shared) {
-        try {
-          const r = await window.storage.list(prefix, !!shared);
-          return r ? r.keys : [];
-        } catch (e) {
-          return [];
-        }
-      }
+      /* =========================================================
+   HELPERS
+   ========================================================= */
 
       function rankFor(xp) {
-        let r = RANKS[0];
-        for (const rk of RANKS) {
-          if (xp >= rk.min) r = rk;
+        let rank = RANKS[0];
+
+        for (const r of RANKS) {
+          if (xp >= r.min) {
+            rank = r;
+          }
         }
-        return r;
+
+        return rank;
       }
 
-      /* ---------------- BOOT ---------------- */
-      async function boot() {
-        const stored = await sget("profile", false);
-        if (stored) {
-          myProfile = JSON.parse(stored);
-          myId = myProfile.id;
-          applyProfileToNav();
-        } else {
-          myId = uid();
-          document.getElementById("setupOverlay").style.display = "flex";
-          renderAvatarPicker();
-        }
-        startPresenceLoop();
-        refreshLeaderboardData();
-        setInterval(refreshLeaderboardData, 6000);
+      function escapeHtml(value) {
+        const div = document.createElement("div");
+        div.textContent = value || "";
+        return div.innerHTML;
       }
 
-      function renderAvatarPicker() {
-        const wrap = document.getElementById("avatarPick");
-        wrap.innerHTML = "";
-        AVATARS.forEach((a, i) => {
-          const d = document.createElement("div");
-          d.className = "avatar-opt" + (i === 0 ? " selected" : "");
-          d.textContent = a;
-          d.onclick = () => {
-            document
-              .querySelectorAll(".avatar-opt")
-              .forEach((x) => x.classList.remove("selected"));
-            d.classList.add("selected");
-          };
-          wrap.appendChild(d);
-        });
-      }
+      /* =========================================================
+   NAVIGATION
+   ========================================================= */
 
-      async function saveProfile() {
-        const name =
-          document.getElementById("setupName").value.trim() ||
-          "Player" + Math.floor(Math.random() * 9999);
-        const selected = document.querySelector(".avatar-opt.selected");
-        const avatar = selected ? selected.textContent : AVATARS[0];
-        const existing = myProfile ? myProfile : {};
-        myProfile = {
-          id: myId,
-          name,
-          avatar,
-          xp: existing.xp || 0,
-          wins: existing.wins || 0,
-          losses: existing.losses || 0,
-          draws: existing.draws || 0,
-          played: existing.played || 0,
-        };
-        await sset("profile", JSON.stringify(myProfile), false);
-        await sset("leaderboard:" + myId, myProfile, true);
-        document.getElementById("setupOverlay").style.display = "none";
-        applyProfileToNav();
-        refreshLeaderboardData();
-      }
-
-      function editProfile() {
-        document.getElementById("setupOverlay").style.display = "flex";
-        document.getElementById("setupName").value = myProfile.name;
-        renderAvatarPicker();
-        document.querySelectorAll(".avatar-opt").forEach((x) => {
-          x.classList.toggle("selected", x.textContent === myProfile.avatar);
-        });
-      }
-
-      function applyProfileToNav() {
-        document.getElementById("navAvatar").textContent = myProfile.avatar;
-        document.getElementById("navName").textContent = myProfile.name;
-        renderProfileScreen();
-      }
-
-      /* ---------------- PRESENCE / ONLINE COUNT ---------------- */
-      async function startPresenceLoop() {
-        const beat = async () => {
-          await sset(
-            "presence:" + myId,
-            JSON.stringify({ t: Date.now() }),
-            true,
-          );
-        };
-        await beat();
-        presenceTimer = setInterval(beat, 8000);
-        await refreshOnlineCount();
-        setInterval(refreshOnlineCount, 10000);
-      }
-      async function refreshOnlineCount() {
-        const keys = await slist("presence:", true);
-        let count = 0;
-        const now = Date.now();
-        for (const k of keys) {
-          try {
-            const r = await window.storage.get(k, true);
-            if (r) {
-              const v = JSON.parse(r.value);
-              if (now - v.t < 25000) count++;
-            }
-          } catch (e) {}
-        }
-        if (count < 1) count = 1;
-        document.getElementById("onlineCount").textContent = count;
-        document.getElementById("heroOnline").textContent = count;
-      }
-
-      /* ---------------- LEADERBOARD ---------------- */
-      async function fetchLeaderboard() {
-        const keys = await slist("leaderboard:", true);
-        const entries = [];
-        for (const k of keys) {
-          try {
-            const r = await window.storage.get(k, true);
-            if (r) entries.push(JSON.parse(r.value));
-          } catch (e) {}
-        }
-        entries.sort((a, b) => (b.xp || 0) - (a.xp || 0));
-        return entries;
-      }
-      async function refreshLeaderboardData() {
-        const entries = await fetchLeaderboard();
-        renderLbList(entries, document.getElementById("lbPreview"), 5);
-        renderLbList(entries, document.getElementById("lbFull"), 50);
-        document.getElementById("heroMatches").textContent = entries.reduce(
-          (s, e) => s + (e.played || 0),
-          0,
-        );
-        document.getElementById("heroTop").textContent = entries.length
-          ? entries[0].xp
-          : 0;
-        renderProfileScreen(entries);
-      }
-      function medalFor(rank) {
-        return rank === 0 ? "👑" : rank === 1 ? "🔥" : rank === 2 ? "⚡" : "🎮";
-      }
-      function renderLbList(entries, container, limit) {
-        if (!entries.length) {
-          container.innerHTML =
-            '<div style="padding:20px;color:var(--ink-dim);font-size:13px;">No players yet — be the first to compete!</div>';
-          return;
-        }
-        container.innerHTML = "";
-        entries.slice(0, limit).forEach((e, i) => {
-          const row = document.createElement("div");
-          row.className = "lb-row" + (e.id === myId ? " me" : "");
-          const winPct = e.played ? Math.round((e.wins / e.played) * 100) : 0;
-          row.innerHTML = `<div class="lb-rank">${i + 1}</div>
-      <div class="lb-avatar">${e.avatar || "🎮"}</div>
-      <div class="lb-name">${medalFor(i)} ${escapeHtml(e.name)}<div class="lb-sub">${e.played || 0} played · ${winPct}% win rate</div></div>
-      <div class="lb-xp">${e.xp || 0} XP</div>`;
-          container.appendChild(row);
-        });
-      }
-      function escapeHtml(s) {
-        const d = document.createElement("div");
-        d.textContent = s;
-        return d.innerHTML;
-      }
-
-      async function renderProfileScreen(entriesMaybe) {
-        if (!myProfile) return;
-        const entries = entriesMaybe || (await fetchLeaderboard());
-        const mine = entries.find((e) => e.id === myId) || myProfile;
-        document.getElementById("profAvatar").textContent = mine.avatar;
-        document.getElementById("profName").textContent = mine.name;
-        const rank = rankFor(mine.xp || 0);
-        document.getElementById("profRank").textContent =
-          rank.badge + " " + rank.name;
-        document.getElementById("statXp").textContent = mine.xp || 0;
-        document.getElementById("statPlayed").textContent = mine.played || 0;
-        document.getElementById("statWins").textContent = mine.wins || 0;
-        document.getElementById("statLosses").textContent = mine.losses || 0;
-        document.getElementById("statWinPct").textContent =
-          (mine.played ? Math.round((mine.wins / mine.played) * 100) : 0) + "%";
-        const idx = entries.findIndex((e) => e.id === myId);
-        document.getElementById("statGlobalRank").textContent =
-          idx >= 0 ? "#" + (idx + 1) : "–";
-      }
-
-      /* ---------------- NAVIGATION ---------------- */
       function showScreen(name) {
         document
           .querySelectorAll(".screen")
-          .forEach((s) => s.classList.remove("active"));
-        document.getElementById("screen-" + name).classList.add("active");
-        window.scrollTo({ top: 0, behavior: "smooth" });
+          .forEach((screen) => screen.classList.remove("active"));
+
+        const target = document.getElementById("screen-" + name);
+
+        if (target) {
+          target.classList.add("active");
+        }
+
+        window.scrollTo({
+          top: 0,
+          behavior: "smooth",
+        });
       }
+
       function goHome() {
         cancelSearch();
         showScreen("home");
       }
+
       function openGameMenu(game) {
         showScreen("gamemenu");
       }
 
-      /* ---------------- QUICK MATCH ---------------- */
-      async function startQuickMatch() {
-        showScreen("searching");
-        document.getElementById("searchSub").textContent =
-          "Scanning the arena across India";
-        const queueKey = "queue:tictactoe";
-        const raw = await sget(queueKey, true);
-        let queue = raw ? JSON.parse(raw) : [];
-        const now = Date.now();
-        queue = queue.filter((p) => p.id !== myId && now - p.ts < 30000);
+      /* =========================================================
+   PROFILE
+   ========================================================= */
 
-        if (queue.length > 0) {
-          // match with the first waiting player
-          const opponent = queue.shift();
-          await sset(queueKey, queue, true);
-          const roomId = "r_" + Math.random().toString(36).slice(2, 10);
-          const room = {
-            id: roomId,
-            game: "tictactoe",
-            players: {
-              X: opponent,
-              O: { id: myId, name: myProfile.name, avatar: myProfile.avatar },
-            },
-            board: Array(9).fill(null),
-            turn: opponent.id,
-            status: "active",
-            winner: null,
-            winLine: null,
-            moveCount: 0,
+      function renderAvatarPicker() {
+        const wrap = document.getElementById("avatarPick");
+
+        if (!wrap) return;
+
+        wrap.innerHTML = "";
+
+        AVATARS.forEach((avatar, index) => {
+          const div = document.createElement("div");
+
+          div.className = "avatar-opt" + (index === 0 ? " selected" : "");
+
+          div.textContent = avatar;
+
+          div.onclick = () => {
+            document
+              .querySelectorAll(".avatar-opt")
+              .forEach((item) => item.classList.remove("selected"));
+
+            div.classList.add("selected");
           };
-          await sset("room:" + roomId, room, true);
-          await sset("matched:" + opponent.id, roomId, true);
-          enterRoom(roomId, "O");
-        } else {
-          // add self to queue and wait
-          queue.push({
-            id: myId,
-            name: myProfile.name,
-            avatar: myProfile.avatar,
-            ts: now,
-          });
-          await sset(queueKey, queue, true);
-          queuePollTimer = setInterval(async () => {
-            const matched = await sget("matched:" + myId, true);
-            if (matched) {
-              clearInterval(queuePollTimer);
-              await sdel("matched:" + myId, true);
-              enterRoom(matched, "X");
-            }
-          }, 1500);
+
+          wrap.appendChild(div);
+        });
+      }
+
+      async function saveProfile() {
+        if (!myId) return;
+
+        const input = document.getElementById("setupName");
+
+        const name =
+          input?.value.trim() || "Player" + Math.floor(Math.random() * 9999);
+
+        const selected = document.querySelector(".avatar-opt.selected");
+
+        const avatar = selected?.textContent || AVATARS[0];
+
+        const oldProfile = myProfile || {};
+
+        myProfile = {
+          id: myId,
+          name,
+          avatar,
+          xp: oldProfile.xp || 0,
+          wins: oldProfile.wins || 0,
+          losses: oldProfile.losses || 0,
+          draws: oldProfile.draws || 0,
+          played: oldProfile.played || 0,
+        };
+
+        localStorage.setItem("arenaProfile", JSON.stringify(myProfile));
+
+        await db.ref("players/" + myId).set(myProfile);
+
+        document.getElementById("setupOverlay").style.display = "none";
+
+        applyProfileToNav();
+
+        refreshLeaderboardData();
+      }
+
+      function editProfile() {
+        if (!myProfile) return;
+
+        document.getElementById("setupOverlay").style.display = "flex";
+
+        document.getElementById("setupName").value = myProfile.name || "";
+
+        renderAvatarPicker();
+
+        document.querySelectorAll(".avatar-opt").forEach((item) => {
+          item.classList.toggle(
+            "selected",
+            item.textContent === myProfile.avatar,
+          );
+        });
+      }
+
+      function applyProfileToNav() {
+        if (!myProfile) return;
+
+        const navAvatar = document.getElementById("navAvatar");
+        const navName = document.getElementById("navName");
+
+        if (navAvatar) {
+          navAvatar.textContent = myProfile.avatar;
         }
+
+        if (navName) {
+          navName.textContent = myProfile.name;
+        }
+
+        renderProfileScreen();
+      }
+
+      /* =========================================================
+   PRESENCE
+   ========================================================= */
+
+      function startPresence() {
+        if (!myId) return;
+
+        presenceRef = db.ref("presence/" + myId);
+
+        presenceRef.set({
+          name: myProfile?.name || "Player",
+          avatar: myProfile?.avatar || "🎮",
+          online: true,
+          lastSeen: firebase.database.ServerValue.TIMESTAMP,
+        });
+
+        presenceRef.onDisconnect().remove();
+
+        refreshOnlineCount();
+
+        setInterval(refreshOnlineCount, 10000);
+      }
+
+      async function refreshOnlineCount() {
+        try {
+          const snapshot = await db.ref("presence").once("value");
+
+          let count = 0;
+
+          const now = Date.now();
+
+          snapshot.forEach((child) => {
+            const data = child.val();
+
+            if (
+              data &&
+              data.online &&
+              data.lastSeen &&
+              now - data.lastSeen < 30000
+            ) {
+              count++;
+            }
+          });
+
+          if (count < 1) {
+            count = 1;
+          }
+
+          const onlineCount = document.getElementById("onlineCount");
+
+          const heroOnline = document.getElementById("heroOnline");
+
+          if (onlineCount) {
+            onlineCount.textContent = count;
+          }
+
+          if (heroOnline) {
+            heroOnline.textContent = count;
+          }
+        } catch (error) {
+          console.error("Online count error:", error);
+        }
+      }
+
+      /* =========================================================
+   LEADERBOARD
+   ========================================================= */
+
+      async function fetchLeaderboard() {
+        try {
+          const snapshot = await db.ref("players").once("value");
+
+          const entries = [];
+
+          snapshot.forEach((child) => {
+            const player = child.val();
+
+            if (player) {
+              entries.push(player);
+            }
+          });
+
+          entries.sort((a, b) => (b.xp || 0) - (a.xp || 0));
+
+          return entries;
+        } catch (error) {
+          console.error("Leaderboard error:", error);
+
+          return [];
+        }
+      }
+
+      async function refreshLeaderboardData() {
+        const entries = await fetchLeaderboard();
+
+        const preview = document.getElementById("lbPreview");
+
+        const full = document.getElementById("lbFull");
+
+        if (preview) {
+          renderLbList(entries, preview, 5);
+        }
+
+        if (full) {
+          renderLbList(entries, full, 50);
+        }
+
+        const totalMatches = entries.reduce(
+          (sum, player) => sum + (player.played || 0),
+          0,
+        );
+
+        const heroMatches = document.getElementById("heroMatches");
+
+        const heroTop = document.getElementById("heroTop");
+
+        if (heroMatches) {
+          heroMatches.textContent = totalMatches;
+        }
+
+        if (heroTop) {
+          heroTop.textContent = entries.length ? entries[0].xp || 0 : 0;
+        }
+
+        renderProfileScreen(entries);
+      }
+
+      function medalFor(rank) {
+        if (rank === 0) return "👑";
+        if (rank === 1) return "🔥";
+        if (rank === 2) return "⚡";
+
+        return "🎮";
+      }
+
+      function renderLbList(entries, container, limit) {
+        if (!container) return;
+
+        if (!entries.length) {
+          container.innerHTML =
+            '<div style="padding:20px;color:var(--ink-dim);font-size:13px;">No players yet — be the first to compete!</div>';
+
+          return;
+        }
+
+        container.innerHTML = "";
+
+        entries.slice(0, limit).forEach((player, index) => {
+          const row = document.createElement("div");
+
+          row.className = "lb-row" + (player.id === myId ? " me" : "");
+
+          const winPct = player.played
+            ? Math.round(((player.wins || 0) / player.played) * 100)
+            : 0;
+
+          row.innerHTML = `
+        <div class="lb-rank">
+          ${index + 1}
+        </div>
+
+        <div class="lb-avatar">
+          ${player.avatar || "🎮"}
+        </div>
+
+        <div class="lb-name">
+          ${medalFor(index)}
+          ${escapeHtml(player.name)}
+          <div class="lb-sub">
+            ${player.played || 0} played ·
+            ${winPct}% win rate
+          </div>
+        </div>
+
+        <div class="lb-xp">
+          ${player.xp || 0} XP
+        </div>
+      `;
+
+          container.appendChild(row);
+        });
+      }
+
+      async function renderProfileScreen(entriesMaybe) {
+        if (!myProfile) return;
+
+        const entries = entriesMaybe || (await fetchLeaderboard());
+
+        const mine = entries.find((player) => player.id === myId) || myProfile;
+
+        document.getElementById("profAvatar").textContent = mine.avatar || "🎮";
+
+        document.getElementById("profName").textContent = mine.name || "Player";
+
+        const rank = rankFor(mine.xp || 0);
+
+        document.getElementById("profRank").textContent =
+          rank.badge + " " + rank.name;
+
+        document.getElementById("statXp").textContent = mine.xp || 0;
+
+        document.getElementById("statPlayed").textContent = mine.played || 0;
+
+        document.getElementById("statWins").textContent = mine.wins || 0;
+
+        document.getElementById("statLosses").textContent = mine.losses || 0;
+
+        document.getElementById("statWinPct").textContent =
+          (mine.played
+            ? Math.round(((mine.wins || 0) / mine.played) * 100)
+            : 0) + "%";
+
+        const index = entries.findIndex((player) => player.id === myId);
+
+        document.getElementById("statGlobalRank").textContent =
+          index >= 0 ? "#" + (index + 1) : "–";
+      }
+
+      /* =========================================================
+   QUICK MATCH
+   ========================================================= */
+
+      async function startQuickMatch() {
+        if (!myId || !myProfile) {
+          alert("Please finish your profile first.");
+          return;
+        }
+
+        cleanupQueueListener();
+
+        showScreen("searching");
+
+        document.getElementById("searchSub").textContent =
+          "Scanning the arena across India…";
+
+        const queueRef = db.ref("queues/tictactoe");
+
+        const roomId = "r_" + Math.random().toString(36).slice(2, 10);
+
+        try {
+          /*
+      Atomic transaction.
+
+      If nobody is waiting:
+      -> become waiting player.
+
+      If someone is waiting:
+      -> convert queue into matched state.
+    */
+
+          const transaction = await queueRef.transaction((current) => {
+            if (!current) {
+              return {
+                status: "waiting",
+
+                player: {
+                  id: myId,
+                  name: myProfile.name,
+                  avatar: myProfile.avatar,
+                },
+
+                ts: firebase.database.ServerValue.TIMESTAMP,
+              };
+            }
+
+            if (
+              current.status === "waiting" &&
+              current.player &&
+              current.player.id !== myId
+            ) {
+              return {
+                status: "matched",
+
+                roomId,
+
+                creatorId: myId,
+
+                creator: {
+                  id: myId,
+                  name: myProfile.name,
+                  avatar: myProfile.avatar,
+                },
+
+                opponent: current.player,
+
+                ts: firebase.database.ServerValue.TIMESTAMP,
+              };
+            }
+
+            return current;
+          });
+
+          if (!transaction.committed) {
+            console.log("Queue transaction not committed.");
+
+            waitForMatch();
+
+            return;
+          }
+
+          const state = transaction.snapshot.val();
+
+          if (!state) {
+            waitForMatch();
+
+            return;
+          }
+
+          /*
+      We became the creator.
+    */
+
+          if (
+            state.status === "matched" &&
+            state.creatorId === myId &&
+            state.opponent
+          ) {
+            await createMatchFromWaitingPlayer(state.opponent, state.roomId);
+
+            return;
+          }
+
+          /*
+      We are the waiting player.
+      Start realtime listener.
+    */
+
+          await waitForMatch();
+        } catch (error) {
+          console.error("Quick match error:", error);
+
+          document.getElementById("searchSub").textContent =
+            "Unable to connect. Please try again.";
+
+          alert("Matchmaking error: " + error.message);
+        }
+      }
+
+      /* =========================================================
+   WAIT FOR MATCH
+   ========================================================= */
+
+      async function waitForMatch() {
+        cleanupQueueListener();
+
+        const queueRef = db.ref("queues/tictactoe");
+
+        const check = async (snapshot) => {
+          const state = snapshot.val();
+
+          /*
+      Queue disappeared.
+
+      This can happen because the creator
+      already created the room and removed
+      the queue.
+
+      Search active rooms for our ID.
+    */
+
+          if (!state) {
+            try {
+              const roomsSnapshot = await db.ref("rooms").once("value");
+
+              let foundRoom = null;
+
+              roomsSnapshot.forEach((child) => {
+                const room = child.val();
+
+                if (
+                  room &&
+                  room.game === "tictactoe" &&
+                  room.status === "active" &&
+                  room.players &&
+                  room.players.X &&
+                  room.players.O &&
+                  (room.players.X.id === myId || room.players.O.id === myId)
+                ) {
+                  foundRoom = room;
+                }
+              });
+
+              if (foundRoom) {
+                cleanupQueueListener();
+
+                const symbol = foundRoom.players.X.id === myId ? "X" : "O";
+
+                await enterRoom(foundRoom.id, symbol);
+              }
+            } catch (error) {
+              console.error("Room recovery error:", error);
+            }
+
+            return;
+          }
+
+          /*
+      Match found.
+    */
+
+          if (
+            state.status === "matched" &&
+            state.roomId &&
+            state.creator &&
+            state.opponent
+          ) {
+            const isCreator = state.creatorId === myId;
+
+            const isOpponent = state.opponent.id === myId;
+
+            if (!isCreator && !isOpponent) {
+              return;
+            }
+
+            cleanupQueueListener();
+
+            /*
+        Creator creates the room.
+      */
+
+            if (isCreator) {
+              await createMatchFromWaitingPlayer(state.opponent, state.roomId);
+
+              return;
+            }
+
+            /*
+        Waiting player waits for creator
+        to create the room.
+      */
+
+            await waitForRoomAndEnter(state.roomId, "X");
+          }
+        };
+
+        queueListener = {
+          ref: queueRef,
+          callback: check,
+        };
+
+        queueRef.on("value", check);
+
+        /*
+    Check immediately.
+    This is important if the queue
+    changed before the listener attached.
+  */
+
+        const immediate = await queueRef.once("value");
+
+        await check(immediate);
+      }
+
+      /* =========================================================
+   WAIT FOR CREATED ROOM
+   ========================================================= */
+
+      async function waitForRoomAndEnter(roomId, symbol) {
+        const roomRef = db.ref("rooms/" + roomId);
+
+        const handler = async (snapshot) => {
+          if (!snapshot.exists()) {
+            return;
+          }
+
+          const room = snapshot.val();
+
+          if (
+            room &&
+            room.players &&
+            room.players.X &&
+            room.players.O &&
+            room.status === "active"
+          ) {
+            roomRef.off("value", handler);
+
+            await enterRoom(roomId, symbol);
+          }
+        };
+
+        roomRef.on("value", handler);
+
+        /*
+    Immediate check.
+  */
+
+        const immediate = await roomRef.once("value");
+
+        await handler(immediate);
+      }
+
+      /* =========================================================
+   CREATE MATCH
+   ========================================================= */
+
+      async function createMatchFromWaitingPlayer(opponent, roomId) {
+        if (!opponent || !opponent.id || opponent.id === myId || !roomId) {
+          return;
+        }
+
+        /*
+    X = waiting player
+    O = creator
+  */
+
+        const room = {
+          id: roomId,
+
+          game: "tictactoe",
+
+          players: {
+            X: {
+              id: opponent.id,
+              name: opponent.name,
+              avatar: opponent.avatar,
+            },
+
+            O: {
+              id: myId,
+              name: myProfile.name,
+              avatar: myProfile.avatar,
+            },
+          },
+
+          board: Array(9).fill(null),
+
+          turn: opponent.id,
+
+          status: "active",
+
+          winner: null,
+
+          winLine: null,
+
+          moveCount: 0,
+
+          createdAt: firebase.database.ServerValue.TIMESTAMP,
+        };
+
+        try {
+          /*
+      Create room first.
+    */
+
+          await db.ref("rooms/" + roomId).set(room);
+
+          /*
+      Also store a direct match reference
+      for the waiting player.
+    */
+
+          await db.ref("matched/" + opponent.id).set(roomId);
+
+          /*
+      Remove queue only after room exists.
+    */
+
+          const queueRef = db.ref("queues/tictactoe");
+
+          await queueRef.transaction((current) => {
+            if (
+              current &&
+              current.status === "matched" &&
+              current.roomId === roomId
+            ) {
+              return null;
+            }
+
+            return current;
+          });
+
+          await enterRoom(roomId, "O");
+        } catch (error) {
+          console.error("Create match error:", error);
+        }
+      }
+
+      /* =========================================================
+   QUEUE CLEANUP
+   ========================================================= */
+
+      function cleanupQueueListener() {
+        if (queueListener && queueListener.ref && queueListener.callback) {
+          queueListener.ref.off("value", queueListener.callback);
+        }
+
+        queueListener = null;
       }
 
       async function cancelSearch() {
-        if (queuePollTimer) clearInterval(queuePollTimer);
-        if (myId) {
-          const raw = await sget("queue:tictactoe", true);
-          if (raw) {
-            let queue = JSON.parse(raw).filter((p) => p.id !== myId);
-            await sset("queue:tictactoe", queue, true);
-          }
+        cleanupQueueListener();
+
+        if (!myId) {
+          showScreen("gamemenu");
+          return;
         }
+
+        try {
+          /*
+      Remove only our waiting queue entry.
+
+      Never delete another player's queue.
+    */
+
+          await db.ref("queues/tictactoe").transaction((current) => {
+            if (
+              current &&
+              current.status === "waiting" &&
+              current.player &&
+              current.player.id === myId
+            ) {
+              return null;
+            }
+
+            return current;
+          });
+
+          await db.ref("matched/" + myId).remove();
+        } catch (error) {
+          console.error("Cancel search error:", error);
+        }
+
         showScreen("gamemenu");
       }
 
-      /* ---------------- PRIVATE ROOMS ---------------- */
+      /* =========================================================
+   PRIVATE ROOM
+   ========================================================= */
+
       function genCode() {
         return Math.random().toString(36).slice(2, 8).toUpperCase();
       }
 
       async function createPrivateRoom() {
-        const code = genCode();
-        const roomId = "priv_" + code;
+        if (!myId || !myProfile) {
+          alert("Please finish your profile first.");
+          return;
+        }
+
+        /*
+    Generate unique room code.
+  */
+
+        let code = null;
+        let roomId = null;
+
+        for (let attempt = 0; attempt < 10; attempt++) {
+          const candidate = genCode();
+
+          const candidateRef = db.ref("rooms/priv_" + candidate);
+
+          const snapshot = await candidateRef.once("value");
+
+          if (!snapshot.exists()) {
+            code = candidate;
+            roomId = "priv_" + code;
+            break;
+          }
+        }
+
+        if (!code || !roomId) {
+          alert("Could not generate a room code. Try again.");
+
+          return;
+        }
+
         const room = {
           id: roomId,
+
           game: "tictactoe",
+
           code,
+
           players: {
-            X: { id: myId, name: myProfile.name, avatar: myProfile.avatar },
+            X: {
+              id: myId,
+              name: myProfile.name,
+              avatar: myProfile.avatar,
+            },
+
             O: null,
           },
+
           board: Array(9).fill(null),
+
           turn: myId,
+
           status: "waiting",
+
           winner: null,
+
           winLine: null,
+
           moveCount: 0,
+
+          createdAt: firebase.database.ServerValue.TIMESTAMP,
         };
-        await sset("room:" + roomId, room, true);
-        document.getElementById("privateRoomCode").textContent = code;
-        showScreen("privatewait");
-        currentRoomId = roomId;
-        queuePollTimer = setInterval(async () => {
-          const r = await sget("room:" + roomId, true);
-          if (r) {
-            const parsed = JSON.parse(r);
-            if (parsed.status === "active") {
-              clearInterval(queuePollTimer);
-              enterRoom(roomId, "X");
-            }
+
+        try {
+          await db.ref("rooms/" + roomId).set(room);
+
+          currentRoomId = roomId;
+
+          document.getElementById("privateRoomCode").textContent = code;
+
+          showScreen("privatewait");
+
+          /*
+      Listen for opponent joining.
+    */
+
+          if (privateRoomListener) {
+            db.ref("rooms/" + roomId).off("value", privateRoomListener);
           }
-        }, 1500);
+
+          const roomRef = db.ref("rooms/" + roomId);
+
+          privateRoomListener = async (snapshot) => {
+            if (!snapshot.exists()) {
+              return;
+            }
+
+            const updatedRoom = snapshot.val();
+
+            if (
+              updatedRoom.status === "active" &&
+              updatedRoom.players &&
+              updatedRoom.players.O
+            ) {
+              roomRef.off("value", privateRoomListener);
+
+              privateRoomListener = null;
+
+              await enterRoom(roomId, "X");
+            }
+          };
+
+          roomRef.on("value", privateRoomListener);
+        } catch (error) {
+          console.error("Private room creation error:", error);
+
+          alert("Could not create room: " + error.message);
+        }
       }
+
+      /* =========================================================
+   JOIN PRIVATE ROOM
+   ========================================================= */
 
       async function joinPrivateRoom() {
-        const code = document
-          .getElementById("joinCodeInput")
-          .value.trim()
-          .toUpperCase();
-        if (!code) return;
+        if (!myId || !myProfile) {
+          alert("Please finish your profile first.");
+          return;
+        }
+
+        const input = document.getElementById("joinCodeInput");
+
+        const code = input.value.trim().toUpperCase();
+
+        if (!code) {
+          alert("Enter a room code.");
+          return;
+        }
+
         const roomId = "priv_" + code;
-        const raw = await sget("room:" + roomId, true);
-        if (!raw) {
-          alert("Room not found. Check the code and try again.");
-          return;
+
+        const roomRef = db.ref("rooms/" + roomId);
+
+        try {
+          /*
+      Transaction prevents two people
+      from joining the same room at once.
+    */
+
+          const transaction = await roomRef.transaction((room) => {
+            if (!room) {
+              return;
+            }
+
+            if (room.status !== "waiting") {
+              return;
+            }
+
+            if (room.players && room.players.X && room.players.X.id === myId) {
+              return;
+            }
+
+            if (room.players && room.players.O) {
+              return;
+            }
+
+            room.players.O = {
+              id: myId,
+              name: myProfile.name,
+              avatar: myProfile.avatar,
+            };
+
+            room.status = "active";
+
+            return room;
+          });
+
+          if (!transaction.committed) {
+            const check = await roomRef.once("value");
+
+            if (!check.exists()) {
+              alert("Room not found. Check the code and try again.");
+            } else {
+              alert("This room is no longer available.");
+            }
+
+            return;
+          }
+
+          const room = transaction.snapshot.val();
+
+          if (!room || !room.players || !room.players.O) {
+            alert("Could not join this room.");
+
+            return;
+          }
+
+          await enterRoom(roomId, "O");
+        } catch (error) {
+          console.error("Join room error:", error);
+
+          alert("Could not join room: " + error.message);
         }
-        const room = JSON.parse(raw);
-        if (room.status !== "waiting") {
-          alert("This room is no longer available.");
-          return;
-        }
-        room.players.O = {
-          id: myId,
-          name: myProfile.name,
-          avatar: myProfile.avatar,
-        };
-        room.status = "active";
-        await sset("room:" + roomId, room, true);
-        enterRoom(roomId, "O");
       }
 
-      /* ---------------- ENTER ROOM / MATCH FOUND ---------------- */
+      /* =========================================================
+   ENTER ROOM
+   ========================================================= */
+
       async function enterRoom(roomId, mySymbol) {
+        if (!roomId) return;
+
         currentRoomId = roomId;
+
         window.mySymbol = mySymbol;
-        const raw = await sget("room:" + roomId, true);
-        const room = JSON.parse(raw);
-        const me = room.players[mySymbol];
-        const opp = room.players[mySymbol === "X" ? "O" : "X"];
 
-        document.getElementById("mfAvatar1").textContent = me.avatar;
-        document.getElementById("mfName1").textContent = me.name;
-        document.getElementById("mfAvatar2").textContent = opp.avatar;
-        document.getElementById("mfName2").textContent = opp.name;
-        showScreen("matchfound");
+        try {
+          const snapshot = await db.ref("rooms/" + roomId).once("value");
 
-        setTimeout(() => {
-          setupGameScreen(room, mySymbol);
-          showScreen("game");
-          startRoomPolling(roomId);
-        }, 1600);
+          if (!snapshot.exists()) {
+            alert("Room no longer exists.");
+
+            showScreen("gamemenu");
+
+            return;
+          }
+
+          const room = snapshot.val();
+
+          const me = room.players[mySymbol];
+
+          const opponent = room.players[mySymbol === "X" ? "O" : "X"];
+
+          if (!me || !opponent) {
+            return;
+          }
+
+          document.getElementById("mfAvatar1").textContent = me.avatar;
+
+          document.getElementById("mfName1").textContent = me.name;
+
+          document.getElementById("mfAvatar2").textContent = opponent.avatar;
+
+          document.getElementById("mfName2").textContent = opponent.name;
+
+          showScreen("matchfound");
+
+          resultHandled = false;
+
+          setTimeout(() => {
+            setupGameScreen(room, mySymbol);
+
+            showScreen("game");
+
+            startRoomListener(roomId);
+          }, 1600);
+        } catch (error) {
+          console.error("Enter room error:", error);
+        }
       }
 
-      /* ---------------- GAME SCREEN ---------------- */
+      /* =========================================================
+   GAME SCREEN
+   ========================================================= */
+
       function setupGameScreen(room, mySymbol) {
-        const oppSymbol = mySymbol === "X" ? "O" : "X";
+        const opponentSymbol = mySymbol === "X" ? "O" : "X";
+
         const me = room.players[mySymbol];
-        const opp = room.players[oppSymbol];
+
+        const opponent = room.players[opponentSymbol];
+
+        if (!me || !opponent) {
+          return;
+        }
+
         document.getElementById("meAvatar").textContent = me.avatar;
+
         document.getElementById("meName").textContent = me.name + " (You)";
+
         document.getElementById("meSymbol").textContent = mySymbol;
+
         document.getElementById("meSymbol").style.color =
           mySymbol === "X" ? "var(--cyan)" : "var(--pink)";
-        document.getElementById("oppAvatar").textContent = opp.avatar;
-        document.getElementById("oppName").textContent = opp.name;
-        document.getElementById("oppSymbol").textContent = oppSymbol;
+
+        document.getElementById("oppAvatar").textContent = opponent.avatar;
+
+        document.getElementById("oppName").textContent = opponent.name;
+
+        document.getElementById("oppSymbol").textContent = opponentSymbol;
+
         document.getElementById("oppSymbol").style.color =
-          oppSymbol === "X" ? "var(--cyan)" : "var(--pink)";
+          opponentSymbol === "X" ? "var(--cyan)" : "var(--pink)";
+
+        /*
+    Load XP values.
+  */
+
         fetchLeaderboard().then((entries) => {
-          const meE = entries.find((e) => e.id === me.id);
-          const oppE = entries.find((e) => e.id === opp.id);
+          const meEntry = entries.find((p) => p.id === me.id);
+
+          const oppEntry = entries.find((p) => p.id === opponent.id);
+
           document.getElementById("meXp").textContent =
-            (meE ? meE.xp : 0) + " XP";
+            (meEntry?.xp || 0) + " XP";
+
           document.getElementById("oppXp").textContent =
-            (oppE ? oppE.xp : 0) + " XP";
+            (oppEntry?.xp || 0) + " XP";
         });
+
         renderBoard(room, mySymbol);
       }
 
+      /* =========================================================
+   BOARD
+   ========================================================= */
+
       function renderBoard(room, mySymbol) {
-        const boardEl = document.getElementById("board");
-        boardEl.innerHTML = "";
+        const board = document.getElementById("board");
+
+        if (!board) return;
+
+        board.innerHTML = "";
+
         const isMyTurn = room.turn === myId && room.status === "active";
-        room.board.forEach((val, idx) => {
-          const c = document.createElement("div");
-          c.className = "cell" + (val ? " filled " + val.toLowerCase() : "");
-          if (room.winLine && room.winLine.includes(idx))
-            c.classList.add("win");
-          c.textContent = val || "";
-          if (!val && isMyTurn && room.status === "active") {
-            c.onclick = () => makeMove(idx, mySymbol);
+
+        room.board.forEach((value, index) => {
+          const cell = document.createElement("div");
+
+          cell.className =
+            "cell" + (value ? " filled " + value.toLowerCase() : "");
+
+          if (room.winLine && room.winLine.includes(index)) {
+            cell.classList.add("win");
           }
-          boardEl.appendChild(c);
+
+          cell.textContent = value || "";
+
+          if (!value && isMyTurn && room.status === "active") {
+            cell.onclick = () => makeMove(index, mySymbol);
+          }
+
+          board.appendChild(cell);
         });
-        document.getElementById("turnBanner").textContent =
-          room.status !== "active"
-            ? ""
-            : isMyTurn
-              ? "Your turn"
-              : "Opponent's turn…";
+
+        const banner = document.getElementById("turnBanner");
+
+        if (banner) {
+          banner.textContent =
+            room.status !== "active"
+              ? ""
+              : isMyTurn
+                ? "Your turn"
+                : "Opponent's turn…";
+        }
+
         document
           .getElementById("meCard")
           .classList.toggle("active-turn", isMyTurn);
+
         document
           .getElementById("opponentCard")
           .classList.toggle(
@@ -1578,113 +2312,407 @@
           );
       }
 
+      /* =========================================================
+   WINNER CHECK
+   ========================================================= */
+
       function checkWinner(board) {
         for (const line of WIN_LINES) {
           const [a, b, c] = line;
-          if (board[a] && board[a] === board[b] && board[a] === board[c])
-            return { symbol: board[a], line };
+
+          if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+            return {
+              symbol: board[a],
+              line,
+            };
+          }
         }
-        if (board.every((c) => c)) return { symbol: "draw", line: null };
+
+        if (board.every((cell) => cell)) {
+          return {
+            symbol: "draw",
+            line: null,
+          };
+        }
+
         return null;
       }
 
-      async function makeMove(idx, mySymbol) {
-        const raw = await sget("room:" + currentRoomId, true);
-        const room = JSON.parse(raw);
-        if (room.board[idx] || room.turn !== myId || room.status !== "active")
+      /* =========================================================
+   MAKE MOVE
+   ========================================================= */
+
+      async function makeMove(index, mySymbol) {
+        if (!currentRoomId) {
           return;
-        room.board[idx] = mySymbol;
-        room.moveCount++;
-        const result = checkWinner(room.board);
-        if (result) {
-          room.status = "finished";
-          room.winner =
-            result.symbol === "draw"
-              ? "draw"
-              : result.symbol === mySymbol
-                ? myId
-                : room.players[result.symbol === "X" ? "X" : "O"].id;
-          room.winLine = result.line;
-        } else {
-          room.turn = mySymbol === "X" ? room.players.O.id : room.players.X.id;
         }
-        await sset("room:" + currentRoomId, room, true);
-        renderBoard(room, mySymbol);
-        if (room.status === "finished") handleGameEnd(room, mySymbol);
-      }
 
-      function startRoomPolling(roomId) {
-        if (roomPollTimer) clearInterval(roomPollTimer);
-        roomPollTimer = setInterval(async () => {
-          const raw = await sget("room:" + roomId, true);
-          if (!raw) return;
-          const room = JSON.parse(raw);
-          const snap = JSON.stringify(room.board) + room.turn + room.status;
-          if (snap === lastRoomSnapshot) return;
-          lastRoomSnapshot = snap;
-          renderBoard(room, window.mySymbol);
-          if (room.status === "finished") {
-            clearInterval(roomPollTimer);
-            handleGameEnd(room, window.mySymbol);
+        const roomRef = db.ref("rooms/" + currentRoomId);
+
+        try {
+          /*
+      IMPORTANT:
+      Firebase transaction makes the move
+      atomic, so two players cannot make
+      the same turn simultaneously.
+    */
+
+          const transaction = await roomRef.transaction((room) => {
+            if (!room) {
+              return;
+            }
+
+            if (room.status !== "active") {
+              return;
+            }
+
+            if (room.turn !== myId) {
+              return;
+            }
+
+            if (room.board[index]) {
+              return;
+            }
+
+            room.board[index] = mySymbol;
+
+            room.moveCount = (room.moveCount || 0) + 1;
+
+            const result = checkWinner(room.board);
+
+            if (result) {
+              room.status = "finished";
+
+              room.winner =
+                result.symbol === "draw"
+                  ? "draw"
+                  : room.players[result.symbol].id;
+
+              room.winLine = result.line;
+            } else {
+              room.turn =
+                mySymbol === "X" ? room.players.O.id : room.players.X.id;
+            }
+
+            return room;
+          });
+
+          if (!transaction.committed) {
+            return;
           }
-        }, 1200);
+
+          const updatedRoom = transaction.snapshot.val();
+
+          if (!updatedRoom) {
+            return;
+          }
+
+          renderBoard(updatedRoom, mySymbol);
+
+          if (updatedRoom.status === "finished") {
+            await handleGameEnd(updatedRoom, mySymbol);
+          }
+        } catch (error) {
+          console.error("Move error:", error);
+        }
       }
 
-      let resultHandled = false;
+      /* =========================================================
+   REALTIME ROOM LISTENER
+   ========================================================= */
+
+      function startRoomListener(roomId) {
+        /*
+    Remove previous listener.
+  */
+
+        if (currentRoomListener) {
+          db.ref("rooms/" + roomId).off("value", currentRoomListener);
+
+          currentRoomListener = null;
+        }
+
+        const roomRef = db.ref("rooms/" + roomId);
+
+        currentRoomListener = async (snapshot) => {
+          if (!snapshot.exists()) {
+            return;
+          }
+
+          const room = snapshot.val();
+
+          const snapshotKey =
+            JSON.stringify(room.board) +
+            "|" +
+            room.turn +
+            "|" +
+            room.status +
+            "|" +
+            room.winner;
+
+          if (snapshotKey === lastRoomSnapshot) {
+            return;
+          }
+
+          lastRoomSnapshot = snapshotKey;
+
+          renderBoard(room, window.mySymbol);
+
+          if (room.status === "finished") {
+            await handleGameEnd(room, window.mySymbol);
+          }
+        };
+
+        roomRef.on("value", currentRoomListener);
+      }
+
+      /* =========================================================
+   GAME END
+   ========================================================= */
+
       async function handleGameEnd(room, mySymbol) {
-        if (resultHandled) return;
+        if (resultHandled) {
+          return;
+        }
+
         resultHandled = true;
-        if (roomPollTimer) clearInterval(roomPollTimer);
+
+        if (currentRoomListener) {
+          db.ref("rooms/" + currentRoomId).off("value", currentRoomListener);
+
+          currentRoomListener = null;
+        }
 
         const iWon = room.winner === myId;
+
         const isDraw = room.winner === "draw";
-        const opp = room.players[mySymbol === "X" ? "O" : "X"];
+
+        const opponent = room.players[mySymbol === "X" ? "O" : "X"];
+
+        /*
+    Calculate XP.
+  */
 
         let delta = 0;
-        const my = { ...myProfile };
-        my.played = (my.played || 0) + 1;
-        if (isDraw) {
-          delta = 5;
-          my.draws = (my.draws || 0) + 1;
-        } else if (iWon) {
-          delta = 25;
-          my.wins = (my.wins || 0) + 1;
-        } else {
-          delta = -10;
-          my.losses = (my.losses || 0) + 1;
+
+        const playerRef = db.ref("players/" + myId);
+
+        const profileRef = db.ref("players/" + myId);
+
+        try {
+          await playerRef.transaction((player) => {
+            if (!player) {
+              player = {
+                id: myId,
+                name: myProfile.name,
+                avatar: myProfile.avatar,
+                xp: 0,
+                wins: 0,
+                losses: 0,
+                draws: 0,
+                played: 0,
+              };
+            }
+
+            player.played = (player.played || 0) + 1;
+
+            if (isDraw) {
+              delta = 5;
+
+              player.draws = (player.draws || 0) + 1;
+            } else if (iWon) {
+              delta = 25;
+
+              player.wins = (player.wins || 0) + 1;
+            } else {
+              delta = -10;
+
+              player.losses = (player.losses || 0) + 1;
+            }
+
+            player.xp = Math.max(0, (player.xp || 0) + delta);
+
+            return player;
+          });
+
+          /*
+      Get final player profile.
+    */
+
+          const updated = await profileRef.once("value");
+
+          if (updated.exists()) {
+            myProfile = updated.val();
+
+            localStorage.setItem("arenaProfile", JSON.stringify(myProfile));
+          }
+        } catch (error) {
+          console.error("Game end profile update error:", error);
         }
-        my.xp = Math.max(0, (my.xp || 0) + delta);
-        myProfile = my;
-        await sset("profile", JSON.stringify(myProfile), false);
-        await sset("leaderboard:" + myId, myProfile, true);
+
+        /*
+    Result UI.
+  */
 
         document.getElementById("resultEmoji").textContent = isDraw
           ? "🤝"
           : iWon
             ? "🏆"
             : "💀";
+
         document.getElementById("resultTitle").textContent = isDraw
           ? "It's a Draw!"
           : iWon
             ? "Victory!"
             : "Defeat";
+
         document.getElementById("resultTitle").className =
           "result-title " + (isDraw ? "draw" : iWon ? "win" : "lose");
+
         document.getElementById("resultSub").textContent = isDraw
-          ? `Evenly matched against ${opp.name}.`
+          ? `Evenly matched against ${opponent.name}.`
           : iWon
-            ? `You beat ${opp.name}. Well played!`
-            : `${opp.name} got the better of you this time.`;
-        const xpEl = document.getElementById("xpChange");
-        xpEl.textContent = (delta >= 0 ? "+" : "") + delta + " XP";
-        xpEl.className = "xp-change " + (delta >= 0 ? "pos" : "neg");
+            ? `You beat ${opponent.name}. Well played!`
+            : `${opponent.name} got the better of you this time.`;
+
+        const xpElement = document.getElementById("xpChange");
+
+        xpElement.textContent = (delta >= 0 ? "+" : "") + delta + " XP";
+
+        xpElement.className = "xp-change " + (delta >= 0 ? "pos" : "neg");
 
         showScreen("result");
-        refreshLeaderboardData();
-        resultHandled = false;
+
+        await refreshLeaderboardData();
+
+        /*
+    Allow another match after
+    leaving the result screen.
+  */
+
+        setTimeout(() => {
+          resultHandled = false;
+        }, 500);
       }
 
-      /* reset the "resultHandled" guard whenever leaving result screen naturally handled by function scope per game */
+      /* =========================================================
+   BOOT
+   ========================================================= */
+
+      async function boot() {
+        try {
+          /*
+      Firebase anonymous login.
+    */
+
+          if (!auth.currentUser) {
+            await auth.signInAnonymously();
+          }
+
+          myId = auth.currentUser.uid;
+
+          console.log("Firebase user:", myId);
+
+          /*
+      Load cloud profile.
+    */
+
+          const cloudSnapshot = await db.ref("players/" + myId).once("value");
+
+          if (cloudSnapshot.exists()) {
+            myProfile = cloudSnapshot.val();
+
+            localStorage.setItem("arenaProfile", JSON.stringify(myProfile));
+
+            applyProfileToNav();
+          } else {
+            /*
+        No cloud profile yet.
+        Check local profile.
+      */
+
+            const local = localStorage.getItem("arenaProfile");
+
+            if (local) {
+              try {
+                const parsed = JSON.parse(local);
+
+                myProfile = {
+                  ...parsed,
+                  id: myId,
+                };
+
+                await db.ref("players/" + myId).set(myProfile);
+
+                applyProfileToNav();
+              } catch (error) {
+                console.error("Local profile parse error:", error);
+
+                showSetup();
+              }
+            } else {
+              showSetup();
+            }
+          }
+
+          /*
+      Start presence.
+    */
+
+          startPresence();
+
+          /*
+      Load leaderboard.
+    */
+
+          refreshLeaderboardData();
+
+          setInterval(refreshLeaderboardData, 10000);
+        } catch (error) {
+          console.error("BOOT ERROR:", error);
+
+          alert("Firebase connection failed.\n\n" + error.message);
+        }
+      }
+
+      /* =========================================================
+   SETUP
+   ========================================================= */
+
+      function showSetup() {
+        const overlay = document.getElementById("setupOverlay");
+
+        if (overlay) {
+          overlay.style.display = "flex";
+        }
+
+        renderAvatarPicker();
+      }
+
+      /* =========================================================
+   CLEANUP ON PAGE CLOSE
+   ========================================================= */
+
+      window.addEventListener("beforeunload", () => {
+        if (presenceRef) {
+          presenceRef.remove();
+        }
+
+        cleanupQueueListener();
+
+        if (currentRoomListener) {
+          currentRoomListener = null;
+        }
+
+        if (privateRoomListener) {
+          privateRoomListener = null;
+        }
+      });
+
+      /* =========================================================
+   START APP
+   ========================================================= */
+
       boot();
     </script>
   </body>
