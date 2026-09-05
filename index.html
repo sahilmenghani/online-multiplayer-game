@@ -1082,42 +1082,7 @@
       </div>
     </div>
 
-    <!-- Firebase: shared cloud database + anonymous auth for real cross-device multiplayer -->
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
     <script>
-      /*
-       * ================================================================
-       * ARENA — REAL CROSS-DEVICE MULTIPLAYER
-       * ================================================================
-       *
-       * This version replaces window.storage + polling with Firebase
-       * Realtime Database + Anonymous Authentication.
-       *
-       * IMPORTANT:
-       * 1. Create a Firebase project.
-       * 2. Enable Anonymous Authentication.
-       * 3. Create a Realtime Database.
-       * 4. Paste your Firebase web config below.
-       * 5. Apply the database rules shown after this script in the
-       *    instructions I gave you.
-       */
-
-      const firebaseConfig = {
-        apiKey: "PASTE_YOUR_FIREBASE_API_KEY",
-        authDomain: "PASTE_YOUR_PROJECT.firebaseapp.com",
-        databaseURL: "https://PASTE_YOUR_PROJECT-default-rtdb.firebaseio.com",
-        projectId: "PASTE_YOUR_PROJECT",
-        storageBucket: "PASTE_YOUR_PROJECT.firebasestorage.app",
-        messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID",
-        appId: "PASTE_YOUR_APP_ID",
-      };
-
-      firebase.initializeApp(firebaseConfig);
-      const auth = firebase.auth();
-      const db = firebase.database();
-
       const AVATARS = [
         "🦁",
         "🐯",
@@ -1132,7 +1097,6 @@
         "🐧",
         "🦄",
       ];
-
       const RANKS = [
         { min: 0, name: "Rookie", badge: "🎮" },
         { min: 500, name: "Fighter", badge: "⚔️" },
@@ -1140,7 +1104,6 @@
         { min: 1600, name: "Champion", badge: "🔥" },
         { min: 2200, name: "Legend", badge: "👑" },
       ];
-
       const WIN_LINES = [
         [0, 1, 2],
         [3, 4, 5],
@@ -1152,24 +1115,54 @@
         [2, 4, 6],
       ];
 
-      let myId = null;
-      let myProfile = null;
-      let currentRoomId = null;
-      let mySymbol = null;
-
-      let roomPollTimer = null;
-      let queuePollTimer = null;
-      let presenceUnsubscribe = null;
-      let leaderboardUnsubscribe = null;
-      let lastRoomSnapshot = "";
-      let resultHandled = false;
+      let myId = null,
+        myProfile = null;
+      let currentRoomId = null,
+        roomPollTimer = null,
+        queuePollTimer = null,
+        presenceTimer = null,
+        listPollTimer = null;
+      let lastRoomSnapshot = null;
 
       function uid() {
         return (
-          "guest_" +
+          "p_" +
           Math.random().toString(36).slice(2, 10) +
           Date.now().toString(36)
         );
+      }
+
+      async function sget(key, shared) {
+        try {
+          const r = await window.storage.get(key, !!shared);
+          return r ? r.value : null;
+        } catch (e) {
+          return null;
+        }
+      }
+      async function sset(key, value, shared) {
+        try {
+          await window.storage.set(
+            key,
+            typeof value === "string" ? value : JSON.stringify(value),
+            !!shared,
+          );
+        } catch (e) {
+          console.error("storage set failed", key, e);
+        }
+      }
+      async function sdel(key, shared) {
+        try {
+          await window.storage.delete(key, !!shared);
+        } catch (e) {}
+      }
+      async function slist(prefix, shared) {
+        try {
+          const r = await window.storage.list(prefix, !!shared);
+          return r ? r.keys : [];
+        } catch (e) {
+          return [];
+        }
       }
 
       function rankFor(xp) {
@@ -1180,136 +1173,36 @@
         return r;
       }
 
-      function pathForKey(key) {
-        return key.replace(/\/+$/, "");
-      }
-
-      /*
-       * Compatibility wrappers.
-       * Existing Arena UI code can still call sget/sset/sdel/slist,
-       * but these now talk to Firebase instead of window.storage.
-       */
-      async function sget(key, shared = true) {
-        try {
-          const snap = await db.ref(pathForKey(key)).once("value");
-          return snap.exists() ? JSON.stringify(snap.val()) : null;
-        } catch (e) {
-          console.error("Firebase get failed:", key, e);
-          return null;
-        }
-      }
-
-      async function sset(key, value, shared = true) {
-        try {
-          let data = value;
-          if (typeof value === "string") {
-            try {
-              data = JSON.parse(value);
-            } catch (_) {
-              data = value;
-            }
-          }
-          await db.ref(pathForKey(key)).set(data);
-          return true;
-        } catch (e) {
-          console.error("Firebase set failed:", key, e);
-          return false;
-        }
-      }
-
-      async function sdel(key, shared = true) {
-        try {
-          await db.ref(pathForKey(key)).remove();
-          return true;
-        } catch (e) {
-          console.error("Firebase delete failed:", key, e);
-          return false;
-        }
-      }
-
-      async function slist(prefix, shared = true) {
-        try {
-          const snap = await db
-            .ref("/")
-            .orderByKey()
-            .startAt(prefix)
-            .endAt(prefix + "\uf8ff")
-            .once("value");
-
-          const keys = [];
-          snap.forEach((child) => keys.push(child.key));
-          return keys;
-        } catch (e) {
-          console.error("Firebase list failed:", prefix, e);
-          return [];
-        }
-      }
-
       /* ---------------- BOOT ---------------- */
-
       async function boot() {
-        try {
-          await auth.signInAnonymously();
-
-          myId = auth.currentUser.uid;
-
-          const local = localStorage.getItem("arenaProfile");
-
-          if (local) {
-            myProfile = JSON.parse(local);
-            myProfile.id = myId;
-            applyProfileToNav();
-            await syncProfileToCloud();
-          } else {
-            myProfile = {
-              id: myId,
-              name: "Player" + Math.floor(Math.random() * 9999),
-              avatar: AVATARS[0],
-              xp: 0,
-              wins: 0,
-              losses: 0,
-              draws: 0,
-              played: 0,
-            };
-            renderAvatarPicker();
-            document.getElementById("setupName").value = "";
-            document.getElementById("setupOverlay").style.display = "flex";
-          }
-
-          startPresenceLoop();
-          startLeaderboardListener();
-
-          window.addEventListener("beforeunload", () => {
-            cleanupPresence();
-            if (currentRoomId) {
-              leaveQueueAndRoom();
-            }
-          });
-        } catch (e) {
-          console.error(e);
-          alert(
-            "Arena could not connect to Firebase. Check your Firebase config, " +
-              "enable Anonymous Authentication, and make sure Realtime Database is created.",
-          );
+        const stored = await sget("profile", false);
+        if (stored) {
+          myProfile = JSON.parse(stored);
+          myId = myProfile.id;
+          applyProfileToNav();
+        } else {
+          myId = uid();
+          document.getElementById("setupOverlay").style.display = "flex";
+          renderAvatarPicker();
         }
+        startPresenceLoop();
+        refreshLeaderboardData();
+        setInterval(refreshLeaderboardData, 6000);
       }
 
       function renderAvatarPicker() {
         const wrap = document.getElementById("avatarPick");
         wrap.innerHTML = "";
-
         AVATARS.forEach((a, i) => {
           const d = document.createElement("div");
           d.className = "avatar-opt" + (i === 0 ? " selected" : "");
           d.textContent = a;
-
           d.onclick = () => {
             document
               .querySelectorAll(".avatar-opt")
               .forEach((x) => x.classList.remove("selected"));
             d.classList.add("selected");
           };
-
           wrap.appendChild(d);
         });
       }
@@ -1318,204 +1211,120 @@
         const name =
           document.getElementById("setupName").value.trim() ||
           "Player" + Math.floor(Math.random() * 9999);
-
         const selected = document.querySelector(".avatar-opt.selected");
         const avatar = selected ? selected.textContent : AVATARS[0];
-
-        const existing = myProfile || {};
-
+        const existing = myProfile ? myProfile : {};
         myProfile = {
           id: myId,
           name,
           avatar,
-          xp: Number(existing.xp || 0),
-          wins: Number(existing.wins || 0),
-          losses: Number(existing.losses || 0),
-          draws: Number(existing.draws || 0),
-          played: Number(existing.played || 0),
+          xp: existing.xp || 0,
+          wins: existing.wins || 0,
+          losses: existing.losses || 0,
+          draws: existing.draws || 0,
+          played: existing.played || 0,
         };
-
-        localStorage.setItem("arenaProfile", JSON.stringify(myProfile));
-
-        await syncProfileToCloud();
-
+        await sset("profile", JSON.stringify(myProfile), false);
+        await sset("leaderboard:" + myId, myProfile, true);
         document.getElementById("setupOverlay").style.display = "none";
         applyProfileToNav();
-      }
-
-      async function syncProfileToCloud() {
-        if (!myProfile || !myId) return;
-
-        myProfile.id = myId;
-        localStorage.setItem("arenaProfile", JSON.stringify(myProfile));
-
-        await db.ref("players/" + myId).set(myProfile);
+        refreshLeaderboardData();
       }
 
       function editProfile() {
         document.getElementById("setupOverlay").style.display = "flex";
         document.getElementById("setupName").value = myProfile.name;
-
         renderAvatarPicker();
-
         document.querySelectorAll(".avatar-opt").forEach((x) => {
           x.classList.toggle("selected", x.textContent === myProfile.avatar);
         });
       }
 
       function applyProfileToNav() {
-        if (!myProfile) return;
-
         document.getElementById("navAvatar").textContent = myProfile.avatar;
         document.getElementById("navName").textContent = myProfile.name;
-
         renderProfileScreen();
       }
 
-      /* ---------------- PRESENCE ---------------- */
-
-      function cleanupPresence() {
-        if (!myId) return;
-
-        try {
-          db.ref("presence/" + myId)
-            .onDisconnect()
-            .cancel();
-          db.ref("presence/" + myId).remove();
-        } catch (_) {}
-      }
-
+      /* ---------------- PRESENCE / ONLINE COUNT ---------------- */
       async function startPresenceLoop() {
-        if (!myId) return;
-
-        const connectedRef = db.ref(".info/connected");
-        const presenceRef = db.ref("presence/" + myId);
-
-        connectedRef.on("value", (snap) => {
-          if (snap.val() !== true) return;
-
-          presenceRef
-            .onDisconnect()
-            .remove()
-            .catch((e) => console.error("onDisconnect failed:", e));
-
-          presenceRef.set({
-            id: myId,
-            name: myProfile ? myProfile.name : "Player",
-            avatar: myProfile ? myProfile.avatar : AVATARS[0],
-            t: firebase.database.ServerValue.TIMESTAMP,
-          });
-        });
-
-        if (presenceUnsubscribe) presenceUnsubscribe();
-
-        const presenceQuery = db.ref("presence");
-
-        const handler = (snap) => {
-          let count = 0;
-          const now = Date.now();
-
-          snap.forEach((child) => {
-            const p = child.val();
-            if (p && (!p.t || now - p.t < 30000)) {
-              count++;
-            }
-          });
-
-          count = Math.max(1, count);
-
-          document.getElementById("onlineCount").textContent = count;
-          document.getElementById("heroOnline").textContent = count;
+        const beat = async () => {
+          await sset(
+            "presence:" + myId,
+            JSON.stringify({ t: Date.now() }),
+            true,
+          );
         };
-
-        presenceQuery.on("value", handler);
-        presenceUnsubscribe = () => presenceQuery.off("value", handler);
+        await beat();
+        presenceTimer = setInterval(beat, 8000);
+        await refreshOnlineCount();
+        setInterval(refreshOnlineCount, 10000);
+      }
+      async function refreshOnlineCount() {
+        const keys = await slist("presence:", true);
+        let count = 0;
+        const now = Date.now();
+        for (const k of keys) {
+          try {
+            const r = await window.storage.get(k, true);
+            if (r) {
+              const v = JSON.parse(r.value);
+              if (now - v.t < 25000) count++;
+            }
+          } catch (e) {}
+        }
+        if (count < 1) count = 1;
+        document.getElementById("onlineCount").textContent = count;
+        document.getElementById("heroOnline").textContent = count;
       }
 
       /* ---------------- LEADERBOARD ---------------- */
-
-      function startLeaderboardListener() {
-        const ref = db.ref("players").orderByChild("xp");
-
-        const handler = (snap) => {
-          const entries = [];
-
-          snap.forEach((child) => {
-            const value = child.val();
-            if (value) entries.push(value);
-          });
-
-          entries.sort((a, b) => (b.xp || 0) - (a.xp || 0));
-
-          renderLbList(entries, document.getElementById("lbPreview"), 5);
-          renderLbList(entries, document.getElementById("lbFull"), 50);
-
-          document.getElementById("heroMatches").textContent = entries.reduce(
-            (s, e) => s + Number(e.played || 0),
-            0,
-          );
-
-          document.getElementById("heroTop").textContent = entries.length
-            ? entries[0].xp || 0
-            : 0;
-
-          renderProfileScreen(entries);
-        };
-
-        ref.on("value", handler);
-        leaderboardUnsubscribe = () => ref.off("value", handler);
-      }
-
       async function fetchLeaderboard() {
-        const snap = await db.ref("players").once("value");
+        const keys = await slist("leaderboard:", true);
         const entries = [];
-
-        snap.forEach((child) => {
-          const value = child.val();
-          if (value) entries.push(value);
-        });
-
+        for (const k of keys) {
+          try {
+            const r = await window.storage.get(k, true);
+            if (r) entries.push(JSON.parse(r.value));
+          } catch (e) {}
+        }
         entries.sort((a, b) => (b.xp || 0) - (a.xp || 0));
         return entries;
       }
-
+      async function refreshLeaderboardData() {
+        const entries = await fetchLeaderboard();
+        renderLbList(entries, document.getElementById("lbPreview"), 5);
+        renderLbList(entries, document.getElementById("lbFull"), 50);
+        document.getElementById("heroMatches").textContent = entries.reduce(
+          (s, e) => s + (e.played || 0),
+          0,
+        );
+        document.getElementById("heroTop").textContent = entries.length
+          ? entries[0].xp
+          : 0;
+        renderProfileScreen(entries);
+      }
       function medalFor(rank) {
         return rank === 0 ? "👑" : rank === 1 ? "🔥" : rank === 2 ? "⚡" : "🎮";
       }
-
       function renderLbList(entries, container, limit) {
-        if (!container) return;
-
         if (!entries.length) {
           container.innerHTML =
             '<div style="padding:20px;color:var(--ink-dim);font-size:13px;">No players yet — be the first to compete!</div>';
           return;
         }
-
         container.innerHTML = "";
-
         entries.slice(0, limit).forEach((e, i) => {
           const row = document.createElement("div");
           row.className = "lb-row" + (e.id === myId ? " me" : "");
-
-          const winPct = e.played
-            ? Math.round(((e.wins || 0) / e.played) * 100)
-            : 0;
-
-          row.innerHTML = `
-            <div class="lb-rank">${i + 1}</div>
-            <div class="lb-avatar">${e.avatar || "🎮"}</div>
-            <div class="lb-name">
-              ${medalFor(i)} ${escapeHtml(e.name || "Player")}
-              <div class="lb-sub">${e.played || 0} played · ${winPct}% win rate</div>
-            </div>
-            <div class="lb-xp">${e.xp || 0} XP</div>
-          `;
-
+          const winPct = e.played ? Math.round((e.wins / e.played) * 100) : 0;
+          row.innerHTML = `<div class="lb-rank">${i + 1}</div>
+      <div class="lb-avatar">${e.avatar || "🎮"}</div>
+      <div class="lb-name">${medalFor(i)} ${escapeHtml(e.name)}<div class="lb-sub">${e.played || 0} played · ${winPct}% win rate</div></div>
+      <div class="lb-xp">${e.xp || 0} XP</div>`;
           container.appendChild(row);
         });
       }
-
       function escapeHtml(s) {
         const d = document.createElement("div");
         d.textContent = s;
@@ -1524,320 +1333,119 @@
 
       async function renderProfileScreen(entriesMaybe) {
         if (!myProfile) return;
-
         const entries = entriesMaybe || (await fetchLeaderboard());
         const mine = entries.find((e) => e.id === myId) || myProfile;
-
         document.getElementById("profAvatar").textContent = mine.avatar;
         document.getElementById("profName").textContent = mine.name;
-
         const rank = rankFor(mine.xp || 0);
-
         document.getElementById("profRank").textContent =
           rank.badge + " " + rank.name;
-
         document.getElementById("statXp").textContent = mine.xp || 0;
         document.getElementById("statPlayed").textContent = mine.played || 0;
         document.getElementById("statWins").textContent = mine.wins || 0;
         document.getElementById("statLosses").textContent = mine.losses || 0;
-
         document.getElementById("statWinPct").textContent =
-          (mine.played
-            ? Math.round(((mine.wins || 0) / mine.played) * 100)
-            : 0) + "%";
-
+          (mine.played ? Math.round((mine.wins / mine.played) * 100) : 0) + "%";
         const idx = entries.findIndex((e) => e.id === myId);
-
         document.getElementById("statGlobalRank").textContent =
           idx >= 0 ? "#" + (idx + 1) : "–";
       }
 
       /* ---------------- NAVIGATION ---------------- */
-
       function showScreen(name) {
         document
           .querySelectorAll(".screen")
           .forEach((s) => s.classList.remove("active"));
-
-        const screen = document.getElementById("screen-" + name);
-        if (screen) screen.classList.add("active");
-
+        document.getElementById("screen-" + name).classList.add("active");
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
-
       function goHome() {
         cancelSearch();
         showScreen("home");
       }
-
       function openGameMenu(game) {
         showScreen("gamemenu");
       }
 
       /* ---------------- QUICK MATCH ---------------- */
-
       async function startQuickMatch() {
-        if (!myProfile || !myId) return;
-
-        if (queuePollTimer) clearInterval(queuePollTimer);
-
         showScreen("searching");
         document.getElementById("searchSub").textContent =
-          "Scanning the arena across India…";
+          "Scanning the arena across India";
+        const queueKey = "queue:tictactoe";
+        const raw = await sget(queueKey, true);
+        let queue = raw ? JSON.parse(raw) : [];
+        const now = Date.now();
+        queue = queue.filter((p) => p.id !== myId && now - p.ts < 30000);
 
-        const queueRef = db.ref("queues/tictactoe");
-        const roomId = "r_" + Math.random().toString(36).slice(2, 10);
-
-        /*
-         * Atomic matchmaking state:
-         *
-         * waiting -> one player is waiting
-         * matched -> a second player has atomically claimed the waiter
-         *
-         * The player who creates the matched state also creates the room.
-         * The waiting player watches the same queue node until the room exists.
-         */
-        const transaction = await queueRef.transaction((current) => {
-          if (!current) {
-            return {
-              status: "waiting",
-              player: {
-                id: myId,
-                name: myProfile.name,
-                avatar: myProfile.avatar,
-              },
-              ts: firebase.database.ServerValue.TIMESTAMP,
-            };
-          }
-
-          if (current.status === "matched") {
-            return current;
-          }
-
-          if (
-            current.status === "waiting" &&
-            current.player &&
-            current.player.id !== myId
-          ) {
-            return {
-              status: "matched",
-              roomId,
-              creatorId: myId,
-              opponent: current.player,
-              creator: {
-                id: myId,
-                name: myProfile.name,
-                avatar: myProfile.avatar,
-              },
-              ts: firebase.database.ServerValue.TIMESTAMP,
-            };
-          }
-
-          return current;
-        });
-
-        if (!transaction.committed) return;
-
-        const state = transaction.snapshot.val();
-
-        if (!state) return;
-
-        if (state.status === "matched" && state.creatorId === myId) {
-          await createMatchFromWaitingPlayer(state.opponent, state.roomId);
-          return;
-        }
-
-        await waitForMatch();
-      }
-
-      async function waitForMatch() {
-        const queueRef = db.ref("queues/tictactoe");
-
-        const check = async (snap) => {
-          const state = snap.val();
-
-          if (!state) {
-            /*
-             * Queue was cleared without a match. Re-enter matchmaking
-             * only if we are still on the searching screen.
-             */
-            return;
-          }
-
-          if (
-            state.status === "matched" &&
-            state.opponent &&
-            state.creator &&
-            state.roomId
-          ) {
-            const isCreator = state.creatorId === myId;
-            const isOpponent = state.opponent.id === myId;
-
-            if (!isCreator && !isOpponent) return;
-
-            if (queuePollTimer) {
+        if (queue.length > 0) {
+          // match with the first waiting player
+          const opponent = queue.shift();
+          await sset(queueKey, queue, true);
+          const roomId = "r_" + Math.random().toString(36).slice(2, 10);
+          const room = {
+            id: roomId,
+            game: "tictactoe",
+            players: {
+              X: opponent,
+              O: { id: myId, name: myProfile.name, avatar: myProfile.avatar },
+            },
+            board: Array(9).fill(null),
+            turn: opponent.id,
+            status: "active",
+            winner: null,
+            winLine: null,
+            moveCount: 0,
+          };
+          await sset("room:" + roomId, room, true);
+          await sset("matched:" + opponent.id, roomId, true);
+          enterRoom(roomId, "O");
+        } else {
+          // add self to queue and wait
+          queue.push({
+            id: myId,
+            name: myProfile.name,
+            avatar: myProfile.avatar,
+            ts: now,
+          });
+          await sset(queueKey, queue, true);
+          queuePollTimer = setInterval(async () => {
+            const matched = await sget("matched:" + myId, true);
+            if (matched) {
               clearInterval(queuePollTimer);
-              queuePollTimer = null;
+              await sdel("matched:" + myId, true);
+              enterRoom(matched, "X");
             }
-
-            queueRef.off("value", check);
-
-            if (isCreator) {
-              await createMatchFromWaitingPlayer(state.opponent, state.roomId);
-              return;
-            }
-
-            /*
-             * Wait until the creator has actually written the room.
-             * This avoids the race where the matched signal arrives
-             * a few milliseconds before the room exists.
-             */
-            await waitForRoomAndEnter(state.roomId, "X");
-          }
-        };
-
-        queueRef.on("value", check);
-
-        queuePollTimer = setInterval(async () => {
-          const snap = await queueRef.once("value");
-          await check(snap);
-        }, 1000);
-      }
-
-      async function waitForRoomAndEnter(roomId, symbol) {
-        const roomRef = db.ref("rooms/" + roomId);
-
-        const handler = async (snap) => {
-          if (!snap.exists()) return;
-
-          const room = snap.val();
-
-          if (
-            room &&
-            room.players &&
-            room.players.X &&
-            room.players.O &&
-            room.status === "active"
-          ) {
-            roomRef.off("value", handler);
-            await queueCleanupAfterMatch(roomId);
-            enterRoom(roomId, symbol);
-          }
-        };
-
-        roomRef.on("value", handler);
-
-        /* Also check immediately in case the room already exists. */
-        const immediate = await roomRef.once("value");
-        await handler(immediate);
-      }
-
-      async function createMatchFromWaitingPlayer(opponent, roomId) {
-        if (!opponent || !opponent.id || opponent.id === myId || !roomId) {
-          return;
+          }, 1500);
         }
-
-        const room = {
-          id: roomId,
-          game: "tictactoe",
-          players: {
-            X: {
-              id: opponent.id,
-              name: opponent.name,
-              avatar: opponent.avatar,
-            },
-            O: {
-              id: myId,
-              name: myProfile.name,
-              avatar: myProfile.avatar,
-            },
-          },
-          board: Array(9).fill(null),
-          turn: opponent.id,
-          status: "active",
-          winner: null,
-          winLine: null,
-          moveCount: 0,
-          createdAt: firebase.database.ServerValue.TIMESTAMP,
-        };
-
-        await db.ref("rooms/" + roomId).set(room);
-
-        await db.ref("matched/" + opponent.id).set(roomId);
-
-        await queueCleanupAfterMatch(roomId);
-
-        enterRoom(roomId, "O");
-      }
-
-      async function queueCleanupAfterMatch(roomId) {
-        const queueRef = db.ref("queues/tictactoe");
-
-        await queueRef.transaction((current) => {
-          if (
-            current &&
-            current.status === "matched" &&
-            current.roomId === roomId
-          ) {
-            return null;
-          }
-
-          return current;
-        });
       }
 
       async function cancelSearch() {
-        if (queuePollTimer) {
-          clearInterval(queuePollTimer);
-          queuePollTimer = null;
-        }
-
-        const queueRef = db.ref("queues/tictactoe");
-
-        await queueRef.transaction((current) => {
-          if (
-            current &&
-            current.status === "waiting" &&
-            current.player &&
-            current.player.id === myId
-          ) {
-            return null;
+        if (queuePollTimer) clearInterval(queuePollTimer);
+        if (myId) {
+          const raw = await sget("queue:tictactoe", true);
+          if (raw) {
+            let queue = JSON.parse(raw).filter((p) => p.id !== myId);
+            await sset("queue:tictactoe", queue, true);
           }
-
-          return current;
-        });
-
-        await db.ref("matched/" + myId).remove();
-
-        if (currentRoomId) {
-          await leaveQueueAndRoom();
         }
-
         showScreen("gamemenu");
       }
 
       /* ---------------- PRIVATE ROOMS ---------------- */
-
       function genCode() {
         return Math.random().toString(36).slice(2, 8).toUpperCase();
       }
 
       async function createPrivateRoom() {
-        if (!myProfile || !myId) return;
-
         const code = genCode();
         const roomId = "priv_" + code;
-
         const room = {
           id: roomId,
           game: "tictactoe",
           code,
           players: {
-            X: {
-              id: myId,
-              name: myProfile.name,
-              avatar: myProfile.avatar,
-            },
+            X: { id: myId, name: myProfile.name, avatar: myProfile.avatar },
             O: null,
           },
           board: Array(9).fill(null),
@@ -1846,203 +1454,122 @@
           winner: null,
           winLine: null,
           moveCount: 0,
-          createdAt: firebase.database.ServerValue.TIMESTAMP,
         };
-
-        await db.ref("rooms/" + roomId).set(room);
-
+        await sset("room:" + roomId, room, true);
         document.getElementById("privateRoomCode").textContent = code;
         showScreen("privatewait");
-
         currentRoomId = roomId;
-
-        if (queuePollTimer) clearInterval(queuePollTimer);
-
-        const roomRef = db.ref("rooms/" + roomId);
-
-        const handler = async (snap) => {
-          const parsed = snap.val();
-
-          if (!parsed) return;
-
-          if (parsed.status === "active") {
-            roomRef.off("value", handler);
-
-            if (queuePollTimer) clearInterval(queuePollTimer);
-
-            enterRoom(roomId, "X");
+        queuePollTimer = setInterval(async () => {
+          const r = await sget("room:" + roomId, true);
+          if (r) {
+            const parsed = JSON.parse(r);
+            if (parsed.status === "active") {
+              clearInterval(queuePollTimer);
+              enterRoom(roomId, "X");
+            }
           }
-        };
-
-        roomRef.on("value", handler);
-
-        queuePollTimer = setInterval(() => {}, 1000000);
+        }, 1500);
       }
 
       async function joinPrivateRoom() {
-        if (!myProfile || !myId) return;
-
         const code = document
           .getElementById("joinCodeInput")
           .value.trim()
           .toUpperCase();
-
         if (!code) return;
-
         const roomId = "priv_" + code;
-        const roomRef = db.ref("rooms/" + roomId);
-
-        const transaction = await roomRef.transaction((room) => {
-          if (!room) return room;
-
-          if (room.status !== "waiting") return;
-
-          if (room.players && room.players.O) return;
-
-          room.players.O = {
-            id: myId,
-            name: myProfile.name,
-            avatar: myProfile.avatar,
-          };
-
-          room.status = "active";
-
-          return room;
-        });
-
-        if (!transaction.committed || !transaction.snapshot.exists()) {
-          alert("Room not found, already full, or no longer available.");
+        const raw = await sget("room:" + roomId, true);
+        if (!raw) {
+          alert("Room not found. Check the code and try again.");
           return;
         }
-
-        const room = transaction.snapshot.val();
-
-        if (!room.players.O || room.players.O.id !== myId) {
-          alert("This room is already occupied.");
+        const room = JSON.parse(raw);
+        if (room.status !== "waiting") {
+          alert("This room is no longer available.");
           return;
         }
-
+        room.players.O = {
+          id: myId,
+          name: myProfile.name,
+          avatar: myProfile.avatar,
+        };
+        room.status = "active";
+        await sset("room:" + roomId, room, true);
         enterRoom(roomId, "O");
       }
 
       /* ---------------- ENTER ROOM / MATCH FOUND ---------------- */
-
-      async function enterRoom(roomId, symbol) {
+      async function enterRoom(roomId, mySymbol) {
         currentRoomId = roomId;
-        mySymbol = symbol;
-        resultHandled = false;
-        lastRoomSnapshot = "";
-
-        const snap = await db.ref("rooms/" + roomId).once("value");
-        const room = snap.val();
-
-        if (!room) {
-          alert("This match no longer exists.");
-          showScreen("gamemenu");
-          return;
-        }
-
-        const me = room.players[symbol];
-        const opp = room.players[symbol === "X" ? "O" : "X"];
-
-        if (!me || !opp) {
-          alert("Waiting for the second player.");
-          return;
-        }
+        window.mySymbol = mySymbol;
+        const raw = await sget("room:" + roomId, true);
+        const room = JSON.parse(raw);
+        const me = room.players[mySymbol];
+        const opp = room.players[mySymbol === "X" ? "O" : "X"];
 
         document.getElementById("mfAvatar1").textContent = me.avatar;
         document.getElementById("mfName1").textContent = me.name;
-
         document.getElementById("mfAvatar2").textContent = opp.avatar;
         document.getElementById("mfName2").textContent = opp.name;
-
         showScreen("matchfound");
 
-        setTimeout(async () => {
-          const latest = await db.ref("rooms/" + roomId).once("value");
-          const latestRoom = latest.val();
-
-          if (!latestRoom) return;
-
-          setupGameScreen(latestRoom, symbol);
+        setTimeout(() => {
+          setupGameScreen(room, mySymbol);
           showScreen("game");
           startRoomPolling(roomId);
-        }, 1200);
+        }, 1600);
       }
 
       /* ---------------- GAME SCREEN ---------------- */
-
-      function setupGameScreen(room, symbol) {
-        const oppSymbol = symbol === "X" ? "O" : "X";
-        const me = room.players[symbol];
+      function setupGameScreen(room, mySymbol) {
+        const oppSymbol = mySymbol === "X" ? "O" : "X";
+        const me = room.players[mySymbol];
         const opp = room.players[oppSymbol];
-
         document.getElementById("meAvatar").textContent = me.avatar;
         document.getElementById("meName").textContent = me.name + " (You)";
-        document.getElementById("meSymbol").textContent = symbol;
-
+        document.getElementById("meSymbol").textContent = mySymbol;
         document.getElementById("meSymbol").style.color =
-          symbol === "X" ? "var(--cyan)" : "var(--pink)";
-
+          mySymbol === "X" ? "var(--cyan)" : "var(--pink)";
         document.getElementById("oppAvatar").textContent = opp.avatar;
         document.getElementById("oppName").textContent = opp.name;
         document.getElementById("oppSymbol").textContent = oppSymbol;
-
         document.getElementById("oppSymbol").style.color =
           oppSymbol === "X" ? "var(--cyan)" : "var(--pink)";
-
-        Promise.all([
-          db.ref("players/" + me.id).once("value"),
-          db.ref("players/" + opp.id).once("value"),
-        ]).then(([meSnap, oppSnap]) => {
-          const meE = meSnap.val();
-          const oppE = oppSnap.val();
-
+        fetchLeaderboard().then((entries) => {
+          const meE = entries.find((e) => e.id === me.id);
+          const oppE = entries.find((e) => e.id === opp.id);
           document.getElementById("meXp").textContent =
-            (meE ? meE.xp || 0 : 0) + " XP";
-
+            (meE ? meE.xp : 0) + " XP";
           document.getElementById("oppXp").textContent =
-            (oppE ? oppE.xp || 0 : 0) + " XP";
+            (oppE ? oppE.xp : 0) + " XP";
         });
-
-        renderBoard(room, symbol);
+        renderBoard(room, mySymbol);
       }
 
-      function renderBoard(room, symbol) {
+      function renderBoard(room, mySymbol) {
         const boardEl = document.getElementById("board");
         boardEl.innerHTML = "";
-
         const isMyTurn = room.turn === myId && room.status === "active";
-
         room.board.forEach((val, idx) => {
           const c = document.createElement("div");
-
           c.className = "cell" + (val ? " filled " + val.toLowerCase() : "");
-
-          if (room.winLine && room.winLine.includes(idx)) {
+          if (room.winLine && room.winLine.includes(idx))
             c.classList.add("win");
-          }
-
           c.textContent = val || "";
-
-          if (!val && isMyTurn) {
-            c.onclick = () => makeMove(idx, symbol);
+          if (!val && isMyTurn && room.status === "active") {
+            c.onclick = () => makeMove(idx, mySymbol);
           }
-
           boardEl.appendChild(c);
         });
-
         document.getElementById("turnBanner").textContent =
           room.status !== "active"
             ? ""
             : isMyTurn
               ? "Your turn"
               : "Opponent's turn…";
-
         document
           .getElementById("meCard")
           .classList.toggle("active-turn", isMyTurn);
-
         document
           .getElementById("opponentCard")
           .classList.toggle(
@@ -2054,266 +1581,110 @@
       function checkWinner(board) {
         for (const line of WIN_LINES) {
           const [a, b, c] = line;
-
-          if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-            return {
-              symbol: board[a],
-              line,
-            };
-          }
+          if (board[a] && board[a] === board[b] && board[a] === board[c])
+            return { symbol: board[a], line };
         }
-
-        if (board.every((c) => c)) {
-          return {
-            symbol: "draw",
-            line: null,
-          };
-        }
-
+        if (board.every((c) => c)) return { symbol: "draw", line: null };
         return null;
       }
 
-      /* ---------------- ATOMIC MOVE ---------------- */
-
-      async function makeMove(idx, symbol) {
-        if (!currentRoomId || !myId) return;
-
-        const roomRef = db.ref("rooms/" + currentRoomId);
-
-        const transaction = await roomRef.transaction((room) => {
-          if (!room) return;
-
-          if (room.status !== "active") return;
-
-          if (room.turn !== myId) return;
-
-          if (room.board[idx]) return;
-
-          if (
-            !room.players ||
-            !room.players[symbol] ||
-            room.players[symbol].id !== myId
-          ) {
-            return;
-          }
-
-          room.board[idx] = symbol;
-          room.moveCount = Number(room.moveCount || 0) + 1;
-
-          const result = checkWinner(room.board);
-
-          if (result) {
-            room.status = "finished";
-
-            if (result.symbol === "draw") {
-              room.winner = "draw";
-            } else {
-              room.winner = room.players[result.symbol].id;
-            }
-
-            room.winLine = result.line;
-            room.finishedAt = firebase.database.ServerValue.TIMESTAMP;
-          } else {
-            const nextSymbol = symbol === "X" ? "O" : "X";
-            room.turn = room.players[nextSymbol].id;
-          }
-
-          return room;
-        });
-
-        if (!transaction.committed) return;
-
-        const room = transaction.snapshot.val();
-
-        renderBoard(room, symbol);
-
-        if (room.status === "finished") {
-          await handleGameEnd(room, symbol);
+      async function makeMove(idx, mySymbol) {
+        const raw = await sget("room:" + currentRoomId, true);
+        const room = JSON.parse(raw);
+        if (room.board[idx] || room.turn !== myId || room.status !== "active")
+          return;
+        room.board[idx] = mySymbol;
+        room.moveCount++;
+        const result = checkWinner(room.board);
+        if (result) {
+          room.status = "finished";
+          room.winner =
+            result.symbol === "draw"
+              ? "draw"
+              : result.symbol === mySymbol
+                ? myId
+                : room.players[result.symbol === "X" ? "X" : "O"].id;
+          room.winLine = result.line;
+        } else {
+          room.turn = mySymbol === "X" ? room.players.O.id : room.players.X.id;
         }
+        await sset("room:" + currentRoomId, room, true);
+        renderBoard(room, mySymbol);
+        if (room.status === "finished") handleGameEnd(room, mySymbol);
       }
-
-      /* ---------------- REAL-TIME ROOM LISTENER ---------------- */
 
       function startRoomPolling(roomId) {
-        if (roomPollTimer) {
-          clearInterval(roomPollTimer);
-          roomPollTimer = null;
-        }
-
-        const roomRef = db.ref("rooms/" + roomId);
-
-        const handler = async (snap) => {
-          const room = snap.val();
-
-          if (!room) {
-            roomRef.off("value", handler);
-            return;
+        if (roomPollTimer) clearInterval(roomPollTimer);
+        roomPollTimer = setInterval(async () => {
+          const raw = await sget("room:" + roomId, true);
+          if (!raw) return;
+          const room = JSON.parse(raw);
+          const snap = JSON.stringify(room.board) + room.turn + room.status;
+          if (snap === lastRoomSnapshot) return;
+          lastRoomSnapshot = snap;
+          renderBoard(room, window.mySymbol);
+          if (room.status === "finished") {
+            clearInterval(roomPollTimer);
+            handleGameEnd(room, window.mySymbol);
           }
-
-          const snapKey =
-            JSON.stringify(room.board) +
-            "|" +
-            room.turn +
-            "|" +
-            room.status +
-            "|" +
-            room.winner;
-
-          if (snapKey !== lastRoomSnapshot) {
-            lastRoomSnapshot = snapKey;
-
-            if (room.players && room.players.X && room.players.O) {
-              setupGameScreen(room, mySymbol);
-              renderBoard(room, mySymbol);
-            }
-
-            if (room.status === "finished" && !resultHandled) {
-              await handleGameEnd(room, mySymbol);
-            }
-          }
-        };
-
-        roomRef.on("value", handler);
-
-        roomPollTimer = {
-          cancel: () => roomRef.off("value", handler),
-        };
+        }, 1200);
       }
 
-      /* ---------------- RESULT / XP ---------------- */
-
-      async function handleGameEnd(room, symbol) {
+      let resultHandled = false;
+      async function handleGameEnd(room, mySymbol) {
         if (resultHandled) return;
-
         resultHandled = true;
-
-        if (roomPollTimer && typeof roomPollTimer.cancel === "function") {
-          roomPollTimer.cancel();
-        }
-
-        roomPollTimer = null;
+        if (roomPollTimer) clearInterval(roomPollTimer);
 
         const iWon = room.winner === myId;
         const isDraw = room.winner === "draw";
-
-        const opp = room.players[symbol === "X" ? "O" : "X"];
+        const opp = room.players[mySymbol === "X" ? "O" : "X"];
 
         let delta = 0;
-
+        const my = { ...myProfile };
+        my.played = (my.played || 0) + 1;
         if (isDraw) {
           delta = 5;
+          my.draws = (my.draws || 0) + 1;
         } else if (iWon) {
           delta = 25;
+          my.wins = (my.wins || 0) + 1;
         } else {
           delta = -10;
+          my.losses = (my.losses || 0) + 1;
         }
-
-        /*
-         * IMPORTANT:
-         * Update this player's stats using a transaction so two tabs
-         * cannot overwrite one another.
-         */
-        const playerRef = db.ref("players/" + myId);
-
-        await playerRef.transaction((current) => {
-          current = current || {
-            id: myId,
-            name: myProfile.name,
-            avatar: myProfile.avatar,
-            xp: 0,
-            wins: 0,
-            losses: 0,
-            draws: 0,
-            played: 0,
-          };
-
-          current.id = myId;
-          current.played = Number(current.played || 0) + 1;
-
-          if (isDraw) {
-            current.draws = Number(current.draws || 0) + 1;
-          } else if (iWon) {
-            current.wins = Number(current.wins || 0) + 1;
-          } else {
-            current.losses = Number(current.losses || 0) + 1;
-          }
-
-          current.xp = Math.max(0, Number(current.xp || 0) + delta);
-
-          return current;
-        });
-
-        const updatedSnap = await playerRef.once("value");
-        myProfile = updatedSnap.val() || myProfile;
-
-        localStorage.setItem("arenaProfile", JSON.stringify(myProfile));
+        my.xp = Math.max(0, (my.xp || 0) + delta);
+        myProfile = my;
+        await sset("profile", JSON.stringify(myProfile), false);
+        await sset("leaderboard:" + myId, myProfile, true);
 
         document.getElementById("resultEmoji").textContent = isDraw
           ? "🤝"
           : iWon
             ? "🏆"
             : "💀";
-
         document.getElementById("resultTitle").textContent = isDraw
           ? "It's a Draw!"
           : iWon
             ? "Victory!"
             : "Defeat";
-
         document.getElementById("resultTitle").className =
           "result-title " + (isDraw ? "draw" : iWon ? "win" : "lose");
-
         document.getElementById("resultSub").textContent = isDraw
           ? `Evenly matched against ${opp.name}.`
           : iWon
             ? `You beat ${opp.name}. Well played!`
             : `${opp.name} got the better of you this time.`;
-
         const xpEl = document.getElementById("xpChange");
-
         xpEl.textContent = (delta >= 0 ? "+" : "") + delta + " XP";
-
         xpEl.className = "xp-change " + (delta >= 0 ? "pos" : "neg");
 
         showScreen("result");
+        refreshLeaderboardData();
+        resultHandled = false;
       }
 
-      /* ---------------- CLEANUP ---------------- */
-
-      async function leaveQueueAndRoom() {
-        try {
-          if (queuePollTimer) {
-            clearInterval(queuePollTimer);
-            queuePollTimer = null;
-          }
-
-          await db.ref("queues/tictactoe").transaction((q) => {
-            if (q && q.id === myId) return null;
-            return q;
-          });
-
-          await db.ref("matched/" + myId).remove();
-
-          if (currentRoomId) {
-            const roomRef = db.ref("rooms/" + currentRoomId);
-            const snap = await roomRef.once("value");
-            const room = snap.val();
-
-            if (room && room.status === "waiting") {
-              if (
-                room.players &&
-                room.players.X &&
-                room.players.X.id === myId
-              ) {
-                await roomRef.remove();
-              }
-            }
-          }
-        } catch (e) {
-          console.error("cleanup failed:", e);
-        }
-      }
-
+      /* reset the "resultHandled" guard whenever leaving result screen naturally handled by function scope per game */
       boot();
     </script>
   </body>
