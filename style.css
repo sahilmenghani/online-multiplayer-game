@@ -743,15 +743,491 @@ input[type="text"] {
   margin-top: 6px;
 }
 
+```css
+/* =========================================================
+   MOBILE RESPONSIVE
+   ========================================================= */
+
 @media (max-width: 600px) {
-  .hero h1 {
-    font-size: 36px;
+
+  /* ---------- GLOBAL ---------- */
+
+  html,
+  body {
+    width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
   }
+
+  #app {
+    width: 100%;
+    max-width: 100%;
+    padding: 0 14px 40px;
+  }
+
+
+  /* ---------- NAV ---------- */
+
+  nav {
+    padding: 12px 0;
+    gap: 10px;
+  }
+
+  .logo {
+    font-size: 18px;
+    gap: 7px;
+  }
+
+  .logo-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    font-size: 16px;
+  }
+
+  .nav-right {
+    gap: 7px;
+  }
+
+  .online-pill {
+    padding: 7px 9px;
+    font-size: 11px;
+    gap: 5px;
+  }
+
+  .online-dot {
+    width: 7px;
+    height: 7px;
+  }
+
+  .nav-btn {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .avatar-chip {
+    padding: 4px 8px 4px 4px;
+    gap: 5px;
+    font-size: 12px;
+  }
+
+  .avatar-circle {
+    width: 27px;
+    height: 27px;
+    font-size: 14px;
+  }
+
+
+  /* ---------- HERO ---------- */
+
+  .hero {
+    padding: 35px 5px 24px;
+  }
+
+  .hero h1 {
+    font-size: clamp(32px, 10vw, 42px);
+    line-height: 1.08;
+    margin-bottom: 12px;
+  }
+
+  .hero p {
+    font-size: 14px;
+    line-height: 1.5;
+    max-width: 340px;
+    margin-bottom: 20px;
+  }
+
+  .stat-row {
+    gap: 20px;
+  }
+
+  .stat .num {
+    font-size: 22px;
+  }
+
+  .stat .lbl {
+    font-size: 10px;
+  }
+
+
+  /* ---------- SECTION TITLES ---------- */
+
+  .section-title {
+    margin: 30px 0 13px;
+  }
+
+  .section-title h2 {
+    font-size: 19px;
+  }
+
+  .link-btn {
+    font-size: 12px;
+  }
+
+
+  /* ---------- GAME CARDS ---------- */
+
+  .game-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .game-card {
+    padding: 19px;
+    border-radius: 15px;
+  }
+
+  .game-emoji {
+    font-size: 36px;
+    margin-bottom: 7px;
+  }
+
+  .game-card h3 {
+    font-size: 17px;
+  }
+
+  .game-card p {
+    font-size: 12px;
+  }
+
+
+  /* ---------- LEADERBOARD ---------- */
+
+  .lb-panel {
+    border-radius: 14px;
+  }
+
+  .lb-row {
+    gap: 9px;
+    padding: 10px 11px;
+  }
+
+  .lb-rank {
+    width: 20px;
+    font-size: 12px;
+  }
+
+  .lb-avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+  }
+
+  .lb-name {
+    font-size: 13px;
+    min-width: 0;
+  }
+
+  .lb-sub {
+    font-size: 9px;
+  }
+
+  .lb-xp {
+    font-size: 13px;
+  }
+
+
+  /* ---------- MODAL ---------- */
+
+  .overlay {
+    padding: 15px;
+  }
+
+  .modal {
+    width: 100%;
+    max-width: 380px;
+    padding: 25px 19px;
+    border-radius: 17px;
+  }
+
+  .modal h2 {
+    font-size: 21px;
+  }
+
+  .avatar-pick {
+    gap: 8px;
+    margin: 15px 0;
+  }
+
+  .avatar-opt {
+    width: 42px;
+    height: 42px;
+    font-size: 19px;
+  }
+
+  input[type="text"] {
+    font-size: 14px;
+    padding: 11px 12px;
+  }
+
+  .btn-primary {
+    padding: 12px 20px;
+    font-size: 14px;
+  }
+
+  .btn-secondary {
+    padding: 11px 18px;
+    font-size: 13px;
+  }
+
+
+  /* ---------- LOBBY ---------- */
+
+  .lobby-wrap {
+    padding: 50px 5px;
+  }
+
+  .radar {
+    width: 115px;
+    height: 115px;
+    font-size: 40px;
+    margin-bottom: 25px;
+  }
+
+  .lobby-wrap h2 {
+    font-size: 21px;
+  }
+
+  .lobby-wrap p {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .room-code-box {
+    padding: 9px 14px;
+    font-size: 17px;
+    letter-spacing: 2px;
+  }
+
+
+  /* ---------- MATCH FOUND ---------- */
+
   .vs-wrap {
     flex-direction: column;
-    gap: 14px;
+    gap: 12px;
+    padding: 45px 5px;
   }
+
+  .vs-card {
+    width: 100%;
+    max-width: 250px;
+    padding: 20px;
+    border-radius: 15px;
+  }
+
+  .vs-avatar {
+    width: 60px;
+    height: 60px;
+    font-size: 28px;
+  }
+
   .vs-text {
+    font-size: 25px;
     transform: rotate(90deg);
   }
+
+
+  /* ---------- GAME ---------- */
+
+  .game-wrap {
+    width: 100%;
+    max-width: 430px;
+    padding: 15px 0;
+  }
+
+  .player-card {
+    padding: 10px 12px;
+    gap: 9px;
+    border-radius: 12px;
+  }
+
+  .player-card .pc-avatar {
+    width: 38px;
+    height: 38px;
+    font-size: 18px;
+  }
+
+  .pc-name {
+    font-size: 13px;
+  }
+
+  .pc-xp {
+    font-size: 10px;
+  }
+
+  .pc-symbol {
+    font-size: 21px;
+  }
+
+  .turn-banner {
+    font-size: 12px;
+    margin: 8px 0;
+  }
+
+
+  /* ---------- BOARD ---------- */
+
+  .board {
+    width: 100%;
+    max-width: 390px;
+    margin: 14px auto;
+    gap: 7px;
+  }
+
+  .cell {
+    width: 100%;
+    min-width: 0;
+    border-radius: 12px;
+    font-size: clamp(32px, 12vw, 44px);
+  }
+
+
+  /* ---------- RESULT ---------- */
+
+  .result-wrap {
+    padding: 45px 5px;
+  }
+
+  .result-emoji {
+    font-size: 58px;
+  }
+
+  .result-title {
+    font-size: 29px;
+  }
+
+  .xp-change {
+    font-size: 18px;
+    margin: 12px 0 22px;
+  }
+
+  .result-actions {
+    width: 100%;
+    max-width: 340px;
+    gap: 8px;
+  }
+
+  .result-actions button {
+    flex: 1;
+  }
+
+
+  /* ---------- PROFILE ---------- */
+
+  .profile-header {
+    flex-direction: column;
+    text-align: center;
+    gap: 12px;
+    padding: 22px 16px;
+    border-radius: 15px;
+  }
+
+  .profile-avatar-lg {
+    width: 70px;
+    height: 70px;
+    font-size: 32px;
+  }
+
+  .profile-stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 15px;
+  }
+
+  .pstat {
+    padding: 13px 8px;
+    border-radius: 12px;
+  }
+
+  .pstat .n {
+    font-size: 20px;
+  }
+
+  .pstat .l {
+    font-size: 10px;
+  }
+
+  .rank-tag {
+    font-size: 11px;
+  }
 }
+
+
+/* =========================================================
+   EXTRA SMALL PHONES
+   ========================================================= */
+
+@media (max-width: 380px) {
+
+  #app {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  nav {
+    padding: 10px 0;
+  }
+
+  .logo {
+    font-size: 16px;
+  }
+
+  .logo-mark {
+    width: 27px;
+    height: 27px;
+    font-size: 14px;
+  }
+
+  .online-pill {
+    display: none;
+  }
+
+  .nav-btn {
+    padding: 7px 9px;
+    font-size: 11px;
+  }
+
+  .hero h1 {
+    font-size: 31px;
+  }
+
+  .hero p {
+    font-size: 13px;
+  }
+
+  .stat-row {
+    gap: 15px;
+  }
+
+  .board {
+    gap: 5px;
+  }
+
+  .cell {
+    border-radius: 10px;
+    font-size: 34px;
+  }
+
+  .player-card {
+    padding: 9px 10px;
+  }
+
+  .player-card .pc-avatar {
+    width: 35px;
+    height: 35px;
+  }
+
+  .pc-name {
+    font-size: 12px;
+  }
+
+  .pc-symbol {
+    font-size: 19px;
+  }
+
+  .result-actions {
+    flex-direction: column;
+  }
+}
+```
+

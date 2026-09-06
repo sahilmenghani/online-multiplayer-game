@@ -1,7 +1,8 @@
+
 /* =========================================================
    ARENA — FIREBASE MULTIPLAYER
    TIC-TAC-TOE
-   Optimized single implementation
+   Stable multiplayer + AI fallback + disconnect handling
    UI / HTML / CSS untouched
    ========================================================= */
 
@@ -10,7 +11,26 @@
    FIREBASE CONFIG
    ========================================================= */
 
-const firebaseConfig = { apiKey: "AIzaSyALkP001EFoAmixfUDHG6dr8rPLY5jZyBU", authDomain: "online-multiplayer-game-87d66.firebaseapp.com", databaseURL: "https://online-multiplayer-game-87d66-default-rtdb.asia-southeast1.firebasedatabase.app", projectId: "online-multiplayer-game-87d66", storageBucket: "online-multiplayer-game-87d66.firebasestorage.app", messagingSenderId: "448318086824", appId: "1:448318086824:web:74c57d238eddced1332c9d", measurementId: "G-EZ5SBVLWWZ", }; if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); } const auth = firebase.auth(); const db = firebase.database();
+const firebaseConfig = {
+  apiKey: "AIzaSyALkP001EFoAmixfUDHG6dr8rPLY5jZyBU",
+  authDomain: "online-multiplayer-game-87d66.firebaseapp.com",
+  databaseURL:
+    "https://online-multiplayer-game-87d66-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "online-multiplayer-game-87d66",
+  storageBucket: "online-multiplayer-game-87d66.firebasestorage.app",
+  messagingSenderId: "448318086824",
+  appId: "1:448318086824:web:74c57d238eddced1332c9d",
+  measurementId: "G-EZ5SBVLWWZ",
+};
+
+if (!firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+
+const auth = firebase.auth();
+const db = firebase.database();
+
+
 /* =========================================================
    CONSTANTS
    ========================================================= */
@@ -49,6 +69,8 @@ const WIN_LINES = [
   [2, 4, 6],
 ];
 
+const MATCH_WAIT_TIME = 30;
+
 
 /* =========================================================
    GLOBAL STATE
@@ -63,12 +85,19 @@ let mySymbol = null;
 let roomListener = null;
 let queueListener = null;
 let privateRoomListener = null;
+let opponentPresenceListener = null;
 
 let presenceRef = null;
+let roomPresenceRef = null;
 
 let resultHandled = false;
 let lastRoomState = "";
 
+let searchTimer = null;
+let searchStartedAt = null;
+
+let aiGame = null;
+let aiMoveTimer = null;
 
 /* =========================================================
    BASIC HELPERS
@@ -111,7 +140,9 @@ function getPlayer(room, symbol) {
 function showScreen(name) {
   document
     .querySelectorAll(".screen")
-    .forEach((screen) => screen.classList.remove("active"));
+    .forEach((screen) => {
+      screen.classList.remove("active");
+    });
 
   const target = document.getElementById("screen-" + name);
 
@@ -126,14 +157,97 @@ function showScreen(name) {
 }
 
 
-function goHome() {
-  cancelSearch();
+/* =========================================================
+   NAVIGATION
+   ========================================================= */
+
+async function goHome() {
+  stopSearchTimer();
+  cleanupQueueListener();
+  stopAI();
+
+  /*
+     If currently inside a multiplayer room,
+     explicitly leave it.
+  */
+
+  if (currentRoomId && myId) {
+    await leaveCurrentRoom();
+  }
+
+  cleanupRoomListener();
+  cleanupPrivateRoomListener();
+  stopOpponentPresenceListener();
+
+  currentRoomId = null;
+  mySymbol = null;
+  lastRoomState = "";
+  resultHandled = false;
+
   showScreen("home");
 }
 
 
-function openGameMenu() {
+async function openGameMenu() {
+  stopSearchTimer();
+  cleanupQueueListener();
+  stopAI();
+
+  if (currentRoomId && myId) {
+    await leaveCurrentRoom();
+  }
+
+  cleanupRoomListener();
+  cleanupPrivateRoomListener();
+  stopOpponentPresenceListener();
+
+  currentRoomId = null;
+  mySymbol = null;
+
   showScreen("gamemenu");
+}
+
+/* =========================================================
+   TOAST / NOTIFICATION
+   ========================================================= */
+
+function showNotification(message) {
+  let toast = document.getElementById("arenaToast");
+
+  if (!toast) {
+    toast = document.createElement("div");
+
+    toast.id = "arenaToast";
+
+    toast.style.position = "fixed";
+    toast.style.left = "50%";
+    toast.style.bottom = "28px";
+    toast.style.transform = "translateX(-50%)";
+    toast.style.zIndex = "9999";
+    toast.style.background = "#1a1740";
+    toast.style.color = "#f4f2ff";
+    toast.style.border = "1px solid rgba(255,255,255,.12)";
+    toast.style.borderRadius = "14px";
+    toast.style.padding = "13px 18px";
+    toast.style.fontSize = "14px";
+    toast.style.fontWeight = "600";
+    toast.style.boxShadow = "0 12px 30px rgba(0,0,0,.4)";
+    toast.style.maxWidth = "90%";
+    toast.style.textAlign = "center";
+    toast.style.opacity = "0";
+    toast.style.transition = "opacity .2s ease";
+
+    document.body.appendChild(toast);
+  }
+
+  toast.textContent = message;
+  toast.style.opacity = "1";
+
+  clearTimeout(toast._timer);
+
+  toast._timer = setTimeout(() => {
+    toast.style.opacity = "0";
+  }, 3500);
 }
 
 
@@ -159,7 +273,9 @@ function renderAvatarPicker() {
     option.onclick = () => {
       document
         .querySelectorAll(".avatar-opt")
-        .forEach((item) => item.classList.remove("selected"));
+        .forEach((item) => {
+          item.classList.remove("selected");
+        });
 
       option.classList.add("selected");
     };
@@ -190,7 +306,6 @@ async function saveProfile() {
     id: myId,
     name,
     avatar,
-
     xp: Number(old.xp || 0),
     wins: Number(old.wins || 0),
     losses: Number(old.losses || 0),
@@ -207,7 +322,12 @@ async function saveProfile() {
     await db.ref("players/" + myId).set(myProfile);
   } catch (error) {
     console.error("Save profile error:", error);
-    alert("Could not save profile: " + error.message);
+
+    alert(
+      "Could not save profile: " +
+        error.message
+    );
+
     return;
   }
 
@@ -624,6 +744,66 @@ async function renderProfileScreen(
 
 
 /* =========================================================
+   MATCH TIMER
+   ========================================================= */
+
+function startSearchTimer() {
+  stopSearchTimer();
+
+  searchStartedAt = Date.now();
+
+  updateSearchTimer();
+
+  searchTimer = setInterval(
+    updateSearchTimer,
+    250
+  );
+}
+
+
+function stopSearchTimer() {
+  if (searchTimer) {
+    clearInterval(searchTimer);
+    searchTimer = null;
+  }
+
+  searchStartedAt = null;
+}
+
+
+function updateSearchTimer() {
+  if (!searchStartedAt) return;
+
+  const elapsed =
+    Math.floor(
+      (Date.now() - searchStartedAt) /
+        1000
+    );
+
+  const remaining =
+    Math.max(
+      0,
+      MATCH_WAIT_TIME - elapsed
+    );
+
+  const searchSub =
+    document.getElementById("searchSub");
+
+  if (searchSub) {
+    searchSub.textContent =
+      remaining > 0
+        ? `Looking for an opponent… ${remaining}s`
+        : "Starting practice match…";
+  }
+
+  if (remaining <= 0) {
+    stopSearchTimer();
+    startAIMatch();
+  }
+}
+
+
+/* =========================================================
    QUICK MATCH
    ========================================================= */
 
@@ -632,10 +812,17 @@ async function startQuickMatch() {
     alert(
       "Please finish your profile first."
     );
+
     return;
   }
 
+  stopAI();
   cleanupQueueListener();
+  cleanupRoomListener();
+  stopOpponentPresenceListener();
+
+  currentRoomId = null;
+  mySymbol = null;
 
   showScreen("searching");
 
@@ -644,8 +831,10 @@ async function startQuickMatch() {
 
   if (searchSub) {
     searchSub.textContent =
-      "Scanning the arena across India…";
+      "Looking for an opponent… 30s";
   }
+
+  startSearchTimer();
 
   const queueRef =
     db.ref("queues/tictactoe");
@@ -663,7 +852,6 @@ async function startQuickMatch() {
 
           /*
              Nobody waiting.
-             Become waiting player.
           */
 
           if (!current) {
@@ -686,7 +874,6 @@ async function startQuickMatch() {
 
           /*
              Someone waiting.
-             Create matched state.
           */
 
           if (
@@ -743,6 +930,8 @@ async function startQuickMatch() {
       state.creatorId === myId &&
       state.opponent
     ) {
+      stopSearchTimer();
+
       await createMatchFromWaitingPlayer(
         state.opponent,
         state.roomId
@@ -764,6 +953,8 @@ async function startQuickMatch() {
       error
     );
 
+    stopSearchTimer();
+
     if (searchSub) {
       searchSub.textContent =
         "Unable to connect. Please try again.";
@@ -771,7 +962,7 @@ async function startQuickMatch() {
 
     alert(
       "Matchmaking error: " +
-      error.message
+        error.message
     );
   }
 }
@@ -794,20 +985,10 @@ async function waitForMatch() {
         snapshot.val();
 
 
-      /*
-         Queue disappeared.
-         Search rooms for our player.
-      */
-
       if (!state) {
-        await recoverExistingRoom();
         return;
       }
 
-
-      /*
-         Match found.
-      */
 
       if (
         state.status === "matched" &&
@@ -825,11 +1006,12 @@ async function waitForMatch() {
           return;
         }
 
+        stopSearchTimer();
         cleanupQueueListener();
 
 
         /*
-           Creator makes the room.
+           Creator makes room.
         */
 
         if (isCreator) {
@@ -843,7 +1025,7 @@ async function waitForMatch() {
 
 
         /*
-           Waiting player waits for room.
+           Waiting player waits.
         */
 
         await waitForRoomAndEnter(
@@ -865,112 +1047,10 @@ async function waitForMatch() {
   );
 
 
-  /*
-     Immediate check.
-  */
-
   const immediate =
     await queueRef.once("value");
 
   await checkQueue(immediate);
-}
-
-
-async function recoverExistingRoom() {
-  try {
-    const snapshot =
-      await db.ref("rooms").once("value");
-
-    let foundRoom = null;
-
-    snapshot.forEach((child) => {
-      const room = child.val();
-
-      if (
-        room &&
-        room.game === "tictactoe" &&
-        room.status === "active" &&
-        room.players?.X &&
-        room.players?.O &&
-        (
-          room.players.X.id === myId ||
-          room.players.O.id === myId
-        )
-      ) {
-        foundRoom = room;
-      }
-    });
-
-    if (!foundRoom) return;
-
-    cleanupQueueListener();
-
-    const symbol =
-      foundRoom.players.X.id === myId
-        ? "X"
-        : "O";
-
-    await enterRoom(
-      foundRoom.id,
-      symbol
-    );
-
-  } catch (error) {
-    console.error(
-      "Room recovery error:",
-      error
-    );
-  }
-}
-
-
-/* =========================================================
-   WAIT FOR CREATED ROOM
-   ========================================================= */
-
-async function waitForRoomAndEnter(
-  roomId,
-  symbol
-) {
-  const roomRef =
-    db.ref("rooms/" + roomId);
-
-  const handler =
-    async (snapshot) => {
-
-      if (!snapshot.exists()) {
-        return;
-      }
-
-      const room =
-        snapshot.val();
-
-      if (
-        room?.status === "active" &&
-        room.players?.X &&
-        room.players?.O
-      ) {
-        roomRef.off(
-          "value",
-          handler
-        );
-
-        await enterRoom(
-          roomId,
-          symbol
-        );
-      }
-    };
-
-  roomRef.on(
-    "value",
-    handler
-  );
-
-  const immediate =
-    await roomRef.once("value");
-
-  await handler(immediate);
 }
 
 
@@ -990,6 +1070,7 @@ async function createMatchFromWaitingPlayer(
     return;
   }
 
+  stopSearchTimer();
 
   /*
      X = waiting player
@@ -1033,12 +1114,7 @@ async function createMatchFromWaitingPlayer(
         .TIMESTAMP,
   };
 
-
   try {
-    /*
-       Create room first.
-    */
-
     await db
       .ref("rooms/" + roomId)
       .set(room);
@@ -1054,8 +1130,7 @@ async function createMatchFromWaitingPlayer(
 
 
     /*
-       Remove queue only after
-       room successfully exists.
+       Remove queue.
     */
 
     await db
@@ -1074,10 +1149,6 @@ async function createMatchFromWaitingPlayer(
       });
 
 
-    /*
-       Creator enters as O.
-    */
-
     await enterRoom(
       roomId,
       "O"
@@ -1089,6 +1160,58 @@ async function createMatchFromWaitingPlayer(
       error
     );
   }
+}
+
+
+/* =========================================================
+   WAIT FOR CREATED ROOM
+   ========================================================= */
+
+async function waitForRoomAndEnter(
+  roomId,
+  symbol
+) {
+  const roomRef =
+    db.ref("rooms/" + roomId);
+
+  const handler =
+    async (snapshot) => {
+
+      if (!snapshot.exists()) {
+        return;
+      }
+
+      const room =
+        snapshot.val();
+
+      if (
+        room?.status === "active" &&
+        room.players?.X &&
+        room.players?.O
+      ) {
+        roomRef.off(
+          "value",
+          handler
+        );
+
+        stopSearchTimer();
+
+        await enterRoom(
+          roomId,
+          symbol
+        );
+      }
+    };
+
+  roomRef.on(
+    "value",
+    handler
+  );
+
+  const immediate =
+    await roomRef.once("value");
+
+  await handler(immediate);
 }
 
 
@@ -1112,6 +1235,7 @@ function cleanupQueueListener() {
 
 
 async function cancelSearch() {
+  stopSearchTimer();
   cleanupQueueListener();
 
   if (!myId) {
@@ -1120,11 +1244,6 @@ async function cancelSearch() {
   }
 
   try {
-
-    /*
-       Remove only our own
-       waiting queue entry.
-    */
 
     await db
       .ref("queues/tictactoe")
@@ -1140,7 +1259,6 @@ async function cancelSearch() {
 
         return current;
       });
-
 
     await db
       .ref("matched/" + myId)
@@ -1174,16 +1292,15 @@ async function createPrivateRoom() {
     alert(
       "Please finish your profile first."
     );
+
     return;
   }
 
+  stopAI();
+  stopSearchTimer();
+
   let code = null;
   let roomId = null;
-
-
-  /*
-     Try several random codes.
-  */
 
   for (
     let attempt = 0;
@@ -1196,7 +1313,7 @@ async function createPrivateRoom() {
     const candidateRef =
       db.ref(
         "rooms/priv_" +
-        candidate
+          candidate
       );
 
     const snapshot =
@@ -1206,19 +1323,19 @@ async function createPrivateRoom() {
 
     if (!snapshot.exists()) {
       code = candidate;
-      roomId = "priv_" + candidate;
+      roomId =
+        "priv_" + candidate;
       break;
     }
   }
-
 
   if (!code || !roomId) {
     alert(
       "Could not generate a room code. Try again."
     );
+
     return;
   }
-
 
   const room = {
     id: roomId,
@@ -1255,13 +1372,13 @@ async function createPrivateRoom() {
         .TIMESTAMP,
   };
 
-
   try {
     await db
       .ref("rooms/" + roomId)
       .set(room);
 
     currentRoomId = roomId;
+    mySymbol = "X";
 
     const codeElement =
       document.getElementById(
@@ -1275,16 +1392,12 @@ async function createPrivateRoom() {
 
     showScreen("privatewait");
 
-
-    /*
-       Clean previous listener.
-    */
-
     cleanupPrivateRoomListener();
 
-
     const roomRef =
-      db.ref("rooms/" + roomId);
+      db.ref(
+        "rooms/" + roomId
+      );
 
     privateRoomListener =
       async (snapshot) => {
@@ -1327,7 +1440,7 @@ async function createPrivateRoom() {
 
     alert(
       "Could not create room: " +
-      error.message
+        error.message
     );
   }
 }
@@ -1339,7 +1452,10 @@ function cleanupPrivateRoomListener() {
     currentRoomId
   ) {
     db
-      .ref("rooms/" + currentRoomId)
+      .ref(
+        "rooms/" +
+          currentRoomId
+      )
       .off(
         "value",
         privateRoomListener
@@ -1359,6 +1475,7 @@ async function joinPrivateRoom() {
     alert(
       "Please finish your profile first."
     );
+
     return;
   }
 
@@ -1373,7 +1490,10 @@ async function joinPrivateRoom() {
       .toUpperCase();
 
   if (!code) {
-    alert("Enter a room code.");
+    alert(
+      "Enter a room code."
+    );
+
     return;
   }
 
@@ -1381,8 +1501,9 @@ async function joinPrivateRoom() {
     "priv_" + code;
 
   const roomRef =
-    db.ref("rooms/" + roomId);
-
+    db.ref(
+      "rooms/" + roomId
+    );
 
   try {
     const transaction =
@@ -1394,13 +1515,15 @@ async function joinPrivateRoom() {
           }
 
           if (
-            room.status !== "waiting"
+            room.status !==
+            "waiting"
           ) {
             return;
           }
 
           if (
-            room.players?.X?.id === myId
+            room.players?.X?.id ===
+            myId
           ) {
             return;
           }
@@ -1423,8 +1546,9 @@ async function joinPrivateRoom() {
         }
       );
 
-
-    if (!transaction.committed) {
+    if (
+      !transaction.committed
+    ) {
       const check =
         await roomRef.once(
           "value"
@@ -1443,7 +1567,6 @@ async function joinPrivateRoom() {
       return;
     }
 
-
     const room =
       transaction.snapshot.val();
 
@@ -1453,6 +1576,7 @@ async function joinPrivateRoom() {
       alert(
         "Could not join this room."
       );
+
       return;
     }
 
@@ -1469,7 +1593,7 @@ async function joinPrivateRoom() {
 
     alert(
       "Could not join room: " +
-      error.message
+        error.message
     );
   }
 }
@@ -1487,12 +1611,10 @@ async function enterRoom(
     return;
   }
 
-  /*
-     Stop previous room listener.
-  */
+  stopAI();
+  stopSearchTimer();
 
   cleanupRoomListener();
-
   cleanupPrivateRoomListener();
 
   currentRoomId = roomId;
@@ -1501,11 +1623,12 @@ async function enterRoom(
   resultHandled = false;
   lastRoomState = "";
 
-
   try {
     const snapshot =
       await db
-        .ref("rooms/" + roomId)
+        .ref(
+          "rooms/" + roomId
+        )
         .once("value");
 
     if (!snapshot.exists()) {
@@ -1527,7 +1650,9 @@ async function enterRoom(
       );
 
     const opponentSymbol =
-      getOpponentSymbol(symbol);
+      getOpponentSymbol(
+        symbol
+      );
 
     const opponent =
       getPlayer(
@@ -1535,11 +1660,11 @@ async function enterRoom(
         opponentSymbol
       );
 
-
     if (!me || !opponent) {
       alert(
         "Waiting for the second player."
       );
+
       return;
     }
 
@@ -1584,7 +1709,6 @@ async function enterRoom(
       mfName2.textContent =
         opponent.name || "Player";
 
-
     showScreen("matchfound");
 
 
@@ -1595,13 +1719,12 @@ async function enterRoom(
     setTimeout(
       async () => {
 
-        /*
-           Make sure the room still exists.
-        */
-
         const latest =
           await db
-            .ref("rooms/" + roomId)
+            .ref(
+              "rooms/" +
+                roomId
+            )
             .once("value");
 
         if (!latest.exists()) {
@@ -1619,8 +1742,28 @@ async function enterRoom(
         showScreen("game");
 
         startRoomListener(
-          roomId
-        );
+  roomId
+);
+
+/*
+   IMPORTANT:
+   Announce ourselves as connected
+   BEFORE listening for opponent disconnect.
+*/
+
+try {
+  await markRoomPresence(roomId);
+} catch (error) {
+  console.error(
+    "Could not mark room presence:",
+    error
+  );
+}
+
+startOpponentPresenceListener(
+  roomId,
+  opponent.id
+);
 
       },
       1200
@@ -1644,7 +1787,9 @@ function setupGameScreen(
   symbol
 ) {
   const opponentSymbol =
-    getOpponentSymbol(symbol);
+    getOpponentSymbol(
+      symbol
+    );
 
   const me =
     getPlayer(
@@ -1726,7 +1871,8 @@ function setupGameScreen(
 
   if (oppName)
     oppName.textContent =
-      opponent.name;
+      opponent.name ||
+      "Opponent";
 
   if (oppSymbol) {
     oppSymbol.textContent =
@@ -1745,11 +1891,17 @@ function setupGameScreen(
 
   Promise.all([
     db
-      .ref("players/" + me.id)
+      .ref(
+        "players/" +
+          me.id
+      )
       .once("value"),
 
     db
-      .ref("players/" + opponent.id)
+      .ref(
+        "players/" +
+          opponent.id
+      )
       .once("value"),
   ])
     .then(
@@ -1787,7 +1939,6 @@ function setupGameScreen(
       }
     );
 
-
   renderBoard(
     room,
     symbol
@@ -1798,20 +1949,39 @@ function setupGameScreen(
 /* =========================================================
    BOARD
    ========================================================= */
+/* =========================================================
+   BOARD
+   ========================================================= */
+
 function renderBoard(room, symbol) {
-  const board = document.getElementById("board");
-  if (!board) return;
+  const board =
+    document.getElementById("board");
+
+  if (!board) {
+    console.error(
+      "ARENA: #board not found"
+    );
+    return;
+  }
 
   board.innerHTML = "";
+
+  const boardData =
+    Array.isArray(room.board)
+      ? room.board
+      : Array(9).fill(null);
 
   const isMyTurn =
     room.status === "active" &&
     room.turn === myId;
 
-  const banner = document.getElementById("turnBanner");
+  const banner =
+    document.getElementById("turnBanner");
 
   if (banner) {
+
     if (room.status === "finished") {
+
       if (room.winner === "draw") {
         banner.textContent = "Draw!";
       } else if (room.winner === myId) {
@@ -1819,14 +1989,20 @@ function renderBoard(room, symbol) {
       } else {
         banner.textContent = "Opponent won!";
       }
+
     } else {
-      banner.textContent = isMyTurn
-        ? "Your turn"
-        : "Opponent's turn…";
+
+      banner.textContent =
+        isMyTurn
+          ? "Your turn"
+          : "Opponent's turn…";
     }
   }
 
-  const meCard = document.getElementById("meCard");
+
+  const meCard =
+    document.getElementById("meCard");
+
   const opponentCard =
     document.getElementById("opponentCard");
 
@@ -1841,25 +2017,40 @@ function renderBoard(room, symbol) {
     opponentCard.classList.toggle(
       "active-turn",
       !isMyTurn &&
-      room.status === "active"
+        room.status === "active"
     );
   }
 
-  const boardData =
-    Array.isArray(room.board)
-      ? room.board
-      : Array(9).fill(null);
+
+  /*
+     Create cells.
+
+     NO onclick here.
+
+     setupBoardClicks() handles
+     every click centrally.
+  */
 
   for (let index = 0; index < 9; index++) {
-    const value = boardData[index] || "";
 
-    const cell = document.createElement("div");
+    const value =
+      boardData[index] || "";
+
+    const cell =
+      document.createElement("div");
 
     cell.className = "cell";
 
+    cell.dataset.index = index;
+
     if (value) {
+
       cell.classList.add("filled");
-      cell.classList.add(value.toLowerCase());
+      cell.classList.add(
+        value.toLowerCase()
+      );
+
+      cell.textContent = value;
     }
 
     if (
@@ -1869,63 +2060,93 @@ function renderBoard(room, symbol) {
       cell.classList.add("win");
     }
 
-    cell.textContent = value;
-
-    // Store the cell index.
-    cell.dataset.index = index;
+    if (
+      !value &&
+      room.status === "active" &&
+      isMyTurn
+    ) {
+      cell.style.cursor = "pointer";
+    }
 
     board.appendChild(cell);
   }
 }
+
+
+/* =========================================================
+   BOARD CLICK FALLBACK
+   ========================================================= */
+
 function setupBoardClicks() {
-  const board = document.getElementById("board");
-
-  if (!board) {
-    console.error("ARENA: #board not found");
-    return;
-  }
-
-  // Prevent duplicate listeners.
-  if (board.dataset.clickReady === "true") {
-    return;
-  }
-
-  board.dataset.clickReady = "true";
-
-  board.addEventListener("click", (event) => {
-    const cell = event.target.closest(".cell");
-
-    if (!cell || !board.contains(cell)) {
-      return;
-    }
-
-    const index = Number(cell.dataset.index);
-
-    if (!Number.isInteger(index)) {
-      return;
-    }
-
-    console.log(
-      "ARENA CLICK:",
-      index,
-      "room:",
-      currentRoomId,
-      "myId:",
-      myId,
-      "symbol:",
-      mySymbol
+  const board =
+    document.getElementById(
+      "board"
     );
 
-    makeMove(index, mySymbol);
-  });
+  if (!board) {
+    console.error(
+      "ARENA: #board not found"
+    );
+
+    return;
+  }
+
+  if (
+    board.dataset.clickReady ===
+    "true"
+  ) {
+    return;
+  }
+
+  board.dataset.clickReady =
+    "true";
+
+  board.addEventListener(
+    "click",
+    (event) => {
+
+      const cell =
+        event.target.closest(
+          ".cell"
+        );
+
+      if (
+        !cell ||
+        !board.contains(cell)
+      ) {
+        return;
+      }
+
+      const index =
+        Number(
+          cell.dataset.index
+        );
+
+      if (
+        !Number.isInteger(
+          index
+        )
+      ) {
+        return;
+      }
+
+      makeMove(
+        index,
+        mySymbol
+      );
+    }
+  );
 }
+
+
 /* =========================================================
    WINNER CHECK
    ========================================================= */
 
 function checkWinner(board) {
-  for (const line of WIN_LINES) {
-
+  for (
+    const line of WIN_LINES
+  ) {
     const [a, b, c] =
       line;
 
@@ -1940,11 +2161,6 @@ function checkWinner(board) {
       };
     }
   }
-
-
-  /*
-     Draw.
-  */
 
   if (
     board.every(
@@ -1964,22 +2180,35 @@ function checkWinner(board) {
 /* =========================================================
    MAKE MOVE
    ========================================================= */
+/* =========================================================
+   MAKE MULTIPLAYER MOVE
+   ========================================================= */
 
-async function makeMove(
-  index,
-  symbol
-) {
-  if (
-    !currentRoomId ||
-    !myId
-  ) {
+async function makeMove(index, symbol) {
+
+  if (!currentRoomId || !myId) {
     return;
   }
 
-
   /*
-     Validate board index.
+     NEVER trust the passed symbol.
+     Always use the symbol Firebase assigned
+     to this client.
   */
+
+  symbol = mySymbol;
+
+  if (
+    symbol !== "X" &&
+    symbol !== "O"
+  ) {
+    console.error(
+      "ARENA: Invalid player symbol",
+      symbol
+    );
+
+    return;
+  }
 
   if (
     index < 0 ||
@@ -1988,13 +2217,11 @@ async function makeMove(
     return;
   }
 
-
   const roomRef =
     db.ref(
       "rooms/" +
-      currentRoomId
+        currentRoomId
     );
-
 
   try {
 
@@ -2012,6 +2239,10 @@ async function makeMove(
             return;
           }
 
+          /*
+             REAL TURN CHECK
+          */
+
           if (
             room.turn !== myId
           ) {
@@ -2019,80 +2250,70 @@ async function makeMove(
           }
 
           if (
-            !Array.isArray(
-              room.board
-            )
+            !Array.isArray(room.board) ||
+            room.board.length !== 9
           ) {
             return;
           }
-
-          if (
-            room.board[index]
-          ) {
-            return;
-          }
-
 
           /*
-             Make sure the symbol
-             actually belongs to us.
+             Cell already occupied
           */
 
+          if (room.board[index]) {
+            return;
+          }
+
+          /*
+             Make sure this symbol
+             belongs to this Firebase user.
+          */
+
+          const player =
+            room.players?.[symbol];
+
           if (
-            !room.players?.[symbol] ||
-            room.players[symbol].id !== myId
+            !player ||
+            player.id !== myId
           ) {
             return;
           }
 
-
           /*
-             Place move.
+             PLACE MOVE
           */
 
-          room.board[index] =
-            symbol;
+          room.board[index] = symbol;
 
           room.moveCount =
-            Number(
-              room.moveCount || 0
-            ) + 1;
-
+            Number(room.moveCount || 0) + 1;
 
           /*
-             Check winner.
+             CHECK WIN / DRAW
           */
 
-          const winner =
-            checkWinner(
-              room.board
-            );
+          const result =
+            checkWinner(room.board);
 
+          if (result) {
 
-          if (winner) {
-
-            room.status =
-              "finished";
+            room.status = "finished";
 
             room.winLine =
-              winner.line;
-
+              result.line;
 
             if (
-              winner.symbol === "draw"
+              result.symbol === "draw"
             ) {
 
-              room.winner =
-                "draw";
+              room.winner = "draw";
 
             } else {
 
               room.winner =
-                room
-                  .players[
-                    winner.symbol
-                  ]
-                  .id;
+                room.players[
+                  result.symbol
+                ].id;
             }
 
             room.finishedAt =
@@ -2103,34 +2324,31 @@ async function makeMove(
           } else {
 
             /*
-               Change turn.
+               Switch turn.
             */
 
             const nextSymbol =
-              getOpponentSymbol(
-                symbol
-              );
+              getOpponentSymbol(symbol);
 
             room.turn =
-              room
-                .players[
-                  nextSymbol
-                ]
-                .id;
+              room.players[
+                nextSymbol
+              ].id;
           }
-
 
           return room;
         }
       );
 
 
-    if (
-      !result.committed
-    ) {
+    if (!result.committed) {
+
+      console.log(
+        "Move rejected by Firebase."
+      );
+
       return;
     }
-
 
     const updatedRoom =
       result.snapshot.val();
@@ -2139,36 +2357,37 @@ async function makeMove(
       return;
     }
 
+    /*
+       Render immediately.
+    */
 
     renderBoard(
       updatedRoom,
-      symbol
+      mySymbol
     );
 
 
     /*
-       Handle finished game.
+       Game finished.
     */
 
     if (
-      updatedRoom.status ===
-      "finished"
+      updatedRoom.status === "finished"
     ) {
       await handleGameEnd(
         updatedRoom,
-        symbol
+        mySymbol
       );
     }
 
   } catch (error) {
 
     console.error(
-      "Move error:",
+      "MOVE ERROR:",
       error
     );
   }
 }
-
 
 /* =========================================================
    REALTIME ROOM LISTENER
@@ -2181,7 +2400,8 @@ function startRoomListener(
 
   const roomRef =
     db.ref(
-      "rooms/" + roomId
+      "rooms/" +
+        roomId
     );
 
   roomListener =
@@ -2202,9 +2422,32 @@ function startRoomListener(
 
 
       /*
-         Avoid rendering the exact
-         same state repeatedly.
+         Opponent left through
+         explicit room status.
       */
+
+      if (
+        room.status ===
+          "opponent-left" &&
+        !resultHandled
+      ) {
+
+        showNotification(
+          "Your opponent left the room."
+        );
+
+        cleanupRoomListener();
+        stopOpponentPresenceListener();
+
+        setTimeout(() => {
+          currentRoomId = null;
+          mySymbol = null;
+          showScreen("gamemenu");
+        }, 1200);
+
+        return;
+      }
+
 
       const stateKey =
         JSON.stringify({
@@ -2226,14 +2469,11 @@ function startRoomListener(
         stateKey;
 
 
-      /*
-         Update game UI.
-      */
-
       if (
         room.players?.X &&
         room.players?.O
       ) {
+
         setupGameScreen(
           room,
           mySymbol
@@ -2245,10 +2485,6 @@ function startRoomListener(
         );
       }
 
-
-      /*
-         Game ended.
-      */
 
       if (
         room.status ===
@@ -2274,6 +2510,408 @@ function cleanupRoomListener() {
 
 
 /* =========================================================
+   OPPONENT PRESENCE / DISCONNECT
+   ========================================================= */
+/* =========================================================
+   ROOM PRESENCE / DISCONNECT
+   ========================================================= */
+
+function stopOpponentPresenceListener() {
+
+  if (
+    opponentPresenceListener
+  ) {
+
+    opponentPresenceListener.ref.off(
+      "value",
+      opponentPresenceListener.callback
+    );
+
+    opponentPresenceListener = null;
+  }
+}
+
+
+async function markRoomPresence(roomId) {
+
+  if (
+    !roomId ||
+    !myId
+  ) {
+    return;
+  }
+
+  /*
+     Each player gets their own
+     connection node.
+  */
+
+  roomPresenceRef =
+    db.ref(
+      "roomPresence/" +
+        roomId +
+        "/" +
+        myId
+    );
+
+
+  /*
+     Mark ourselves online.
+  */
+
+  await roomPresenceRef.set({
+    connected: true,
+
+    name:
+      myProfile?.name ||
+      "Player",
+
+    avatar:
+      myProfile?.avatar ||
+      "🎮",
+
+    lastSeen:
+      firebase.database
+        .ServerValue
+        .TIMESTAMP,
+  });
+
+
+  /*
+     Firebase itself changes this
+     when the connection dies.
+
+     This is what handles:
+     - closing tab
+     - browser crash
+     - internet loss
+     - laptop sleep
+     - page navigation
+  */
+
+  await roomPresenceRef
+    .onDisconnect()
+    .remove();
+}
+
+
+function startOpponentPresenceListener(
+  roomId,
+  opponentId
+) {
+
+  stopOpponentPresenceListener();
+
+  if (
+    !roomId ||
+    !opponentId
+  ) {
+    return;
+  }
+
+  const ref =
+    db.ref(
+      "roomPresence/" +
+        roomId +
+        "/" +
+        opponentId
+    );
+
+  let wasOnline = false;
+
+  let initialCheck = true;
+
+  const callback =
+    async (snapshot) => {
+
+      const exists =
+        snapshot.exists();
+
+      /*
+         Initial snapshot:
+         don't immediately call someone
+         a quitter. The other browser may
+         still be connecting.
+      */
+
+      if (initialCheck) {
+
+        initialCheck = false;
+
+        if (exists) {
+          wasOnline = true;
+        }
+
+        return;
+      }
+
+
+      /*
+         Opponent was seen alive and
+         has now disappeared.
+      */
+
+      if (
+        wasOnline &&
+        !exists
+      ) {
+
+        wasOnline = false;
+
+        await handleOpponentLeft(
+          roomId,
+          opponentId
+        );
+      }
+
+
+      /*
+         Opponent came back.
+      */
+
+      if (exists) {
+        wasOnline = true;
+      }
+    };
+
+
+  opponentPresenceListener = {
+    ref,
+    callback,
+  };
+
+  ref.on(
+    "value",
+    callback
+  );
+}
+/* =========================================================
+   LEAVE CURRENT ROOM
+   ========================================================= */
+
+async function leaveCurrentRoom() {
+
+  const roomId =
+    currentRoomId;
+
+  if (!roomId) {
+    return;
+  }
+
+  /*
+     Stop our local listener first.
+  */
+
+  stopOpponentPresenceListener();
+  cleanupRoomListener();
+  cleanupPrivateRoomListener();
+
+  /*
+     Remove our room presence.
+
+     The opponent's listener will see
+     this disappear and know that we left.
+  */
+
+  if (
+    roomPresenceRef
+  ) {
+
+    try {
+      await roomPresenceRef.remove();
+    } catch (error) {
+      console.error(
+        "Room presence cleanup error:",
+        error
+      );
+    }
+
+    roomPresenceRef = null;
+  }
+
+
+  currentRoomId = null;
+  mySymbol = null;
+}
+async function markRoomPresence(
+  roomId
+) {
+  if (
+    !roomId ||
+    !myId
+  ) {
+    return;
+  }
+
+  const ref =
+    db.ref(
+      "roomPresence/" +
+        roomId +
+        "/" +
+        myId
+    );
+
+  await ref.set({
+    connected: true,
+    name:
+      myProfile?.name ||
+      "Player",
+    lastSeen:
+      firebase.database
+        .ServerValue
+        .TIMESTAMP,
+  });
+
+  await ref.onDisconnect().set({
+    connected: false,
+    name:
+      myProfile?.name ||
+      "Player",
+    lastSeen:
+      firebase.database
+        .ServerValue
+        .TIMESTAMP,
+  });
+}
+
+/* =========================================================
+   OPPONENT LEFT
+   ========================================================= */
+
+async function handleOpponentLeft(
+  roomId,
+  opponentId
+) {
+
+  if (
+    !currentRoomId ||
+    currentRoomId !== roomId
+  ) {
+    return;
+  }
+
+  if (
+    resultHandled ||
+    aiGame
+  ) {
+    return;
+  }
+
+
+  /*
+     Check the actual room before
+     showing "opponent left".
+
+     This prevents false notifications
+     after a completed match.
+  */
+
+  try {
+
+    const snapshot =
+      await db
+        .ref(
+          "rooms/" +
+            roomId
+        )
+        .once("value");
+
+    const room =
+      snapshot.val();
+
+    if (
+      !room ||
+      room.status !== "active"
+    ) {
+      return;
+    }
+
+
+    const isOpponent =
+      room.players?.X?.id ===
+        opponentId ||
+      room.players?.O?.id ===
+        opponentId;
+
+    if (!isOpponent) {
+      return;
+    }
+
+
+    /*
+       Mark room as opponent-left.
+    */
+
+    await db
+      .ref(
+        "rooms/" +
+          roomId
+      )
+      .transaction(
+        (current) => {
+
+          if (!current) {
+            return;
+          }
+
+          if (
+            current.status !==
+            "active"
+          ) {
+            return;
+          }
+
+          current.status =
+            "opponent-left";
+
+          current.leftPlayer =
+            opponentId;
+
+          current.leftAt =
+            firebase.database
+              .ServerValue
+              .TIMESTAMP;
+
+          return current;
+        }
+      );
+
+
+    /*
+       Tell this player.
+    */
+
+    showNotification(
+      "Your opponent left the room."
+    );
+
+
+    /*
+       Clean everything.
+    */
+
+    await leaveCurrentRoom();
+
+
+    /*
+       Send player back to game lobby.
+    */
+
+    setTimeout(() => {
+      showScreen("gamemenu");
+    }, 1200);
+
+  } catch (error) {
+
+    console.error(
+      "Opponent left handling error:",
+      error
+    );
+  }
+}
+
+
+/* =========================================================
    GAME END
    ========================================================= */
 
@@ -2281,31 +2919,24 @@ async function handleGameEnd(
   room,
   symbol
 ) {
-  /*
-     Prevent duplicate XP rewards
-     from local + realtime events.
-  */
-
-  if (resultHandled) {
+  if (
+    resultHandled
+  ) {
     return;
   }
 
   resultHandled = true;
 
-
-  /*
-     Stop listener.
-  */
-
   cleanupRoomListener();
-
+  stopOpponentPresenceListener();
 
   const iWon =
-    room.winner === myId;
+    room.winner ===
+    myId;
 
   const draw =
-    room.winner === "draw";
-
+    room.winner ===
+    "draw";
 
   const opponentSymbol =
     getOpponentSymbol(
@@ -2318,11 +2949,6 @@ async function handleGameEnd(
       opponentSymbol
     );
 
-
-  /*
-     XP calculation.
-  */
-
   let xpChange = 0;
 
   if (draw) {
@@ -2333,16 +2959,11 @@ async function handleGameEnd(
     xpChange = -10;
   }
 
-
-  /*
-     Update our profile atomically.
-  */
-
   const playerRef =
     db.ref(
-      "players/" + myId
+      "players/" +
+        myId
     );
-
 
   try {
 
@@ -2365,12 +2986,10 @@ async function handleGameEnd(
             played: 0,
           };
 
-
         player.played =
           Number(
             player.played || 0
           ) + 1;
-
 
         if (draw) {
 
@@ -2394,7 +3013,6 @@ async function handleGameEnd(
             ) + 1;
         }
 
-
         player.xp =
           Math.max(
             0,
@@ -2403,15 +3021,10 @@ async function handleGameEnd(
             ) + xpChange
           );
 
-
         return player;
       }
     );
 
-
-    /*
-       Get updated profile.
-    */
 
     const profileSnapshot =
       await playerRef.once(
@@ -2440,10 +3053,6 @@ async function handleGameEnd(
     );
   }
 
-
-  /*
-     Result UI.
-  */
 
   const emoji =
     document.getElementById(
@@ -2533,14 +3142,885 @@ async function handleGameEnd(
 
   showScreen("result");
 
-
-  /*
-     Refresh leaderboard.
-  */
-
   await refreshLeaderboardData();
 }
 
+
+/* =========================================================
+   AI MODE
+   ========================================================= */
+
+function startAIMatch() {
+
+  stopSearchTimer();
+  cleanupQueueListener();
+  cleanupRoomListener();
+  cleanupPrivateRoomListener();
+  stopOpponentPresenceListener();
+
+  aiGame = {
+    active: true,
+
+    board: Array(9).fill(null),
+
+    mySymbol: "X",
+
+    aiSymbol: "O",
+
+    turn: "X",
+
+    status: "active",
+
+    winner: null,
+
+    winLine: null,
+
+    opponent: {
+      id: "AI",
+      name: "Arena AI",
+      avatar: "🤖",
+    },
+  };
+
+  currentRoomId = null;
+  mySymbol = "X";
+
+  resultHandled = false;
+  lastRoomState = "";
+
+  setupAIGameScreen();
+
+  showScreen("game");
+
+  renderAIBoard();
+
+  showNotification(
+    "No opponent found. Arena AI joined!"
+  );
+}
+
+function setupAIGameScreen() {
+
+  const meAvatar =
+    document.getElementById(
+      "meAvatar"
+    );
+
+  const meName =
+    document.getElementById(
+      "meName"
+    );
+
+  const meSymbol =
+    document.getElementById(
+      "meSymbol"
+    );
+
+  const oppAvatar =
+    document.getElementById(
+      "oppAvatar"
+    );
+
+  const oppName =
+    document.getElementById(
+      "oppName"
+    );
+
+  const oppSymbol =
+    document.getElementById(
+      "oppSymbol"
+    );
+
+  const meXp =
+    document.getElementById(
+      "meXp"
+    );
+
+  const oppXp =
+    document.getElementById(
+      "oppXp"
+    );
+
+  if (meAvatar) {
+    meAvatar.textContent =
+      myProfile?.avatar ||
+      "🎮";
+  }
+
+  if (meName) {
+    meName.textContent =
+      (myProfile?.name ||
+        "Player") +
+      " (You)";
+  }
+
+  if (meSymbol) {
+    meSymbol.textContent =
+      "X";
+
+    meSymbol.style.color =
+      "var(--cyan)";
+  }
+
+  if (oppAvatar) {
+    oppAvatar.textContent =
+      "🤖";
+  }
+
+  if (oppName) {
+    oppName.textContent =
+      "Arena AI";
+  }
+
+  if (oppSymbol) {
+    oppSymbol.textContent =
+      "O";
+
+    oppSymbol.style.color =
+      "var(--pink)";
+  }
+
+  if (meXp) {
+    meXp.textContent =
+      `${Number(
+        myProfile?.xp || 0
+      )} XP`;
+  }
+
+  if (oppXp) {
+    oppXp.textContent =
+      "Practice";
+  }
+}
+
+
+function renderAIBoard() {
+
+  if (!aiGame) {
+    return;
+  }
+
+  const board =
+    document.getElementById(
+      "board"
+    );
+
+  if (!board) {
+    return;
+  }
+
+  board.innerHTML = "";
+
+  const isMyTurn =
+    aiGame.turn ===
+      "X" &&
+    aiGame.status ===
+      "active";
+
+  const banner =
+    document.getElementById(
+      "turnBanner"
+    );
+
+  if (banner) {
+
+    if (
+      aiGame.status ===
+      "finished"
+    ) {
+
+      if (
+        aiGame.winner ===
+        "draw"
+      ) {
+        banner.textContent =
+          "Draw!";
+      } else if (
+        aiGame.winner ===
+        "X"
+      ) {
+        banner.textContent =
+          "You won!";
+      } else {
+        banner.textContent =
+          "AI won!";
+      }
+
+    } else {
+
+      banner.textContent =
+        isMyTurn
+          ? "Your turn"
+          : "AI is thinking…";
+    }
+  }
+
+
+  const meCard =
+    document.getElementById(
+      "meCard"
+    );
+
+  const opponentCard =
+    document.getElementById(
+      "opponentCard"
+    );
+
+  if (meCard) {
+    meCard.classList.toggle(
+      "active-turn",
+      isMyTurn
+    );
+  }
+
+  if (opponentCard) {
+    opponentCard.classList.toggle(
+      "active-turn",
+      !isMyTurn &&
+        aiGame.status ===
+          "active"
+    );
+  }
+
+
+  for (
+    let index = 0;
+    index < 9;
+    index++
+  ) {
+
+    const value =
+      aiGame.board[index] ||
+      "";
+
+    const cell =
+      document.createElement(
+        "div"
+      );
+
+    cell.className =
+      "cell";
+
+    cell.dataset.index =
+      index;
+
+    if (value) {
+
+      cell.classList.add(
+        "filled"
+      );
+
+      cell.classList.add(
+        value.toLowerCase()
+      );
+
+      cell.textContent =
+        value;
+    }
+
+
+    if (
+      aiGame.winLine &&
+      aiGame.winLine.includes(
+        index
+      )
+    ) {
+      cell.classList.add(
+        "win"
+      );
+    }
+
+
+    if (
+      !value &&
+      isMyTurn
+    ) {
+
+      cell.style.cursor =
+        "pointer";
+
+      cell.onclick = () => {
+        makeAIModePlayerMove(
+          index
+        );
+      };
+    }
+
+    board.appendChild(
+      cell
+    );
+  }
+}
+
+
+/* =========================================================
+   PLAYER MOVE VS AI
+   ========================================================= */
+
+function makeAIModePlayerMove(
+  index
+) {
+
+  if (
+    !aiGame ||
+    !aiGame.active
+  ) {
+    return;
+  }
+
+  if (
+    aiGame.status !==
+    "active"
+  ) {
+    return;
+  }
+
+  if (
+    aiGame.turn !==
+    "X"
+  ) {
+    return;
+  }
+
+  if (
+    index < 0 ||
+    index > 8
+  ) {
+    return;
+  }
+
+  if (
+    aiGame.board[index]
+  ) {
+    return;
+  }
+
+
+  aiGame.board[index] =
+    "X";
+
+  aiGame.turn =
+    "O";
+
+  checkAIGameState();
+
+  renderAIBoard();
+
+
+  if (
+    aiGame.status !==
+    "active"
+  ) {
+    finishAIGame();
+    return;
+  }
+
+
+  /*
+     Small thinking delay.
+  */
+
+  aiMoveTimer = setTimeout(
+  () => {
+    aiMoveTimer = null;
+    makeAIMove();
+  },
+  450
+);
+}
+
+
+/* =========================================================
+   AI MOVE
+   ========================================================= */
+
+function makeAIMove() {
+
+  if (
+    !aiGame ||
+    !aiGame.active ||
+    aiGame.status !==
+      "active" ||
+    aiGame.turn !==
+      "O"
+  ) {
+    return;
+  }
+
+  const move =
+    findBestAIMove(
+      aiGame.board
+    );
+
+  if (
+    move === null ||
+    move === undefined
+  ) {
+    return;
+  }
+
+  aiGame.board[move] =
+    "O";
+
+  aiGame.turn =
+    "X";
+
+  checkAIGameState();
+
+  renderAIBoard();
+
+
+  if (
+    aiGame.status !==
+    "active"
+  ) {
+    finishAIGame();
+  }
+}
+
+
+/* =========================================================
+   SMART AI
+   ========================================================= */
+
+/* =========================================================
+   SMART TIC-TAC-TOE AI
+   ========================================================= */
+
+function findBestAIMove(board) {
+
+  let bestScore = -Infinity;
+  let bestMoves = [];
+
+  for (let i = 0; i < 9; i++) {
+
+    if (board[i]) {
+      continue;
+    }
+
+    board[i] = "O";
+
+    const score =
+      minimax(
+        board,
+        false,
+        0
+      );
+
+    board[i] = null;
+
+    if (score > bestScore) {
+
+      bestScore = score;
+      bestMoves = [i];
+
+    } else if (
+      score === bestScore
+    ) {
+
+      bestMoves.push(i);
+    }
+  }
+
+  if (!bestMoves.length) {
+    return null;
+  }
+
+  /*
+     If several moves are equally good,
+     randomly select one so the AI doesn't
+     look completely robotic.
+  */
+
+  return bestMoves[
+    Math.floor(
+      Math.random() *
+        bestMoves.length
+    )
+  ];
+}
+
+
+function minimax(
+  board,
+  maximizing,
+  depth
+) {
+
+  const result =
+    checkWinner(board);
+
+  if (result) {
+
+    if (
+      result.symbol === "O"
+    ) {
+      return 10 - depth;
+    }
+
+    if (
+      result.symbol === "X"
+    ) {
+      return depth - 10;
+    }
+
+    return 0;
+  }
+
+
+  if (maximizing) {
+
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < 9; i++) {
+
+      if (board[i]) {
+        continue;
+      }
+
+      board[i] = "O";
+
+      const score =
+        minimax(
+          board,
+          false,
+          depth + 1
+        );
+
+      board[i] = null;
+
+      bestScore =
+        Math.max(
+          bestScore,
+          score
+        );
+    }
+
+    return bestScore;
+
+  } else {
+
+    let bestScore = Infinity;
+
+    for (let i = 0; i < 9; i++) {
+
+      if (board[i]) {
+        continue;
+      }
+
+      board[i] = "X";
+
+      const score =
+        minimax(
+          board,
+          true,
+          depth + 1
+        );
+
+      board[i] = null;
+
+      bestScore =
+        Math.min(
+          bestScore,
+          score
+        );
+    }
+
+    return bestScore;
+  }
+}
+
+
+/* =========================================================
+   AI GAME STATE
+   ========================================================= */
+
+function checkAIGameState() {
+
+  const result =
+    checkWinner(
+      aiGame.board
+    );
+
+  if (!result) {
+    return;
+  }
+
+  aiGame.status =
+    "finished";
+
+  aiGame.winner =
+    result.symbol;
+
+  aiGame.winLine =
+    result.line;
+}
+
+
+/* =========================================================
+   FINISH AI GAME
+   ========================================================= */
+
+function finishAIGame() {
+
+  if (
+    !aiGame ||
+    !aiGame.active
+  ) {
+    return;
+  }
+
+  aiGame.active =
+    false;
+
+  const won =
+    aiGame.winner ===
+    "X";
+
+  const draw =
+    aiGame.winner ===
+    "draw";
+
+  let xpChange = 0;
+
+  /*
+     AI practice rewards are
+     intentionally smaller.
+  */
+
+  if (won) {
+    xpChange = 10;
+  } else if (draw) {
+    xpChange = 3;
+  } else {
+    xpChange = 0;
+  }
+
+
+  updateAIResult(
+    won,
+    draw,
+    xpChange
+  );
+}
+
+
+async function updateAIResult(
+  won,
+  draw,
+  xpChange
+) {
+
+  const emoji =
+    document.getElementById(
+      "resultEmoji"
+    );
+
+  const title =
+    document.getElementById(
+      "resultTitle"
+    );
+
+  const sub =
+    document.getElementById(
+      "resultSub"
+    );
+
+  const xp =
+    document.getElementById(
+      "xpChange"
+    );
+
+
+  if (emoji) {
+    emoji.textContent =
+      draw
+        ? "🤝"
+        : won
+          ? "🏆"
+          : "🤖";
+  }
+
+
+  if (title) {
+
+    title.textContent =
+      draw
+        ? "It's a Draw!"
+        : won
+          ? "Victory!"
+          : "AI Wins";
+
+    title.className =
+      "result-title " +
+      (
+        draw
+          ? "draw"
+          : won
+            ? "win"
+            : "lose"
+      );
+  }
+
+
+  if (sub) {
+
+    sub.textContent =
+      draw
+        ? "Evenly matched against Arena AI."
+        : won
+          ? "You beat the Arena AI!"
+          : "Arena AI got the better of you this time.";
+  }
+
+
+  if (xp) {
+
+    xp.textContent =
+      (xpChange >= 0
+        ? "+"
+        : "") +
+      xpChange +
+      " XP";
+
+    xp.className =
+      "xp-change " +
+      (
+        xpChange >= 0
+          ? "pos"
+          : "neg"
+      );
+  }
+
+
+  /*
+     Update stats locally/cloud.
+  */
+
+  if (myId) {
+
+    try {
+
+      const playerRef =
+        db.ref(
+          "players/" +
+            myId
+        );
+
+      await playerRef.transaction(
+        (player) => {
+
+          player =
+            player || {
+              id: myId,
+              name:
+                myProfile?.name ||
+                "Player",
+              avatar:
+                myProfile?.avatar ||
+                "🎮",
+              xp: 0,
+              wins: 0,
+              losses: 0,
+              draws: 0,
+              played: 0,
+            };
+
+          player.played =
+            Number(
+              player.played || 0
+            ) + 1;
+
+          if (won) {
+
+            player.wins =
+              Number(
+                player.wins || 0
+              ) + 1;
+
+          } else if (draw) {
+
+            player.draws =
+              Number(
+                player.draws || 0
+              ) + 1;
+          } else {
+
+            player.losses =
+              Number(
+                player.losses || 0
+              ) + 1;
+          }
+
+          player.xp =
+            Math.max(
+              0,
+              Number(
+                player.xp || 0
+              ) + xpChange
+            );
+
+          return player;
+        }
+      );
+
+      const updated =
+        await playerRef.once(
+          "value"
+        );
+
+      if (
+        updated.exists()
+      ) {
+
+        myProfile =
+          updated.val();
+
+        localStorage.setItem(
+          "arenaProfile",
+          JSON.stringify(
+            myProfile
+          )
+        );
+      }
+
+    } catch (error) {
+
+      console.error(
+        "AI result update error:",
+        error
+      );
+    }
+  }
+
+
+  showScreen(
+    "result"
+  );
+
+  await refreshLeaderboardData();
+
+  aiGame = null;
+}
+
+
+/* =========================================================
+   STOP AI
+   ========================================================= */
+
+/* =========================================================
+   STOP AI
+   ========================================================= */
+
+function stopAI() {
+
+  if (aiMoveTimer) {
+    clearTimeout(aiMoveTimer);
+    aiMoveTimer = null;
+  }
+
+  aiGame = null;
+}
 
 /* =========================================================
    SETUP SCREEN
@@ -2566,6 +4046,7 @@ function showSetup() {
    ========================================================= */
 
 async function boot() {
+
   try {
 
     /*
@@ -2586,14 +4067,24 @@ async function boot() {
 
 
     /*
+       IMPORTANT:
+       Enable board click system.
+    */
+
+    setupBoardClicks();
+
+
+    /*
        Load cloud profile.
     */
 
     const cloudSnapshot =
       await db
-        .ref("players/" + myId)
+        .ref(
+          "players/" +
+            myId
+        )
         .once("value");
-
 
     if (
       cloudSnapshot.exists()
@@ -2622,7 +4113,6 @@ async function boot() {
           "arenaProfile"
         );
 
-
       if (local) {
 
         try {
@@ -2635,13 +4125,12 @@ async function boot() {
             id: myId,
           };
 
-
           await db
             .ref(
-              "players/" + myId
+              "players/" +
+                myId
             )
             .set(myProfile);
-
 
           applyProfileToNav();
 
@@ -2677,7 +4166,7 @@ async function boot() {
 
 
     /*
-       Periodic leaderboard update.
+       Periodic leaderboard.
     */
 
     setInterval(
@@ -2694,11 +4183,10 @@ async function boot() {
 
     alert(
       "Firebase connection failed.\n\n" +
-      error.message
+        error.message
     );
   }
 }
-
 
 /* =========================================================
    PAGE CLOSE CLEANUP
@@ -2709,33 +4197,25 @@ window.addEventListener(
   () => {
 
     /*
-       Presence.
+       Firebase onDisconnect()
+       handles the room presence.
+
+       We only clean local listeners here.
     */
 
     if (presenceRef) {
       presenceRef.remove();
     }
 
-
-    /*
-       Queue.
-    */
-
     cleanupQueueListener();
-
-
-    /*
-       Room.
-    */
-
     cleanupRoomListener();
-
-
-    /*
-       Private room.
-    */
-
     cleanupPrivateRoomListener();
+    stopOpponentPresenceListener();
+
+    if (aiMoveTimer) {
+      clearTimeout(aiMoveTimer);
+      aiMoveTimer = null;
+    }
   }
 );
 
@@ -2745,3 +4225,4 @@ window.addEventListener(
    ========================================================= */
 
 boot();
+
