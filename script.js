@@ -1799,14 +1799,8 @@ function setupGameScreen(
    BOARD
    ========================================================= */
 
-function renderBoard(
-  room,
-  symbol
-) {
-  const board =
-    document.getElementById(
-      "board"
-    );
+function renderBoard(room, symbol) {
+  const board = document.getElementById("board");
 
   if (!board) return;
 
@@ -1816,141 +1810,91 @@ function renderBoard(
     room.status === "active" &&
     room.turn === myId;
 
+  // -----------------------------
+  // TURN BANNER
+  // -----------------------------
 
-  /*
-     Turn banner.
-  */
-
-  const banner =
-    document.getElementById(
-      "turnBanner"
-    );
+  const banner = document.getElementById("turnBanner");
 
   if (banner) {
-
-    if (
-      room.status === "finished"
-    ) {
-
-      if (
-        room.winner === "draw"
-      ) {
-        banner.textContent =
-          "Draw!";
-      } else if (
-        room.winner === myId
-      ) {
-        banner.textContent =
-          "You won!";
+    if (room.status === "finished") {
+      if (room.winner === "draw") {
+        banner.textContent = "Draw!";
+      } else if (room.winner === myId) {
+        banner.textContent = "You won!";
       } else {
-        banner.textContent =
-          "Opponent won!";
+        banner.textContent = "Opponent won!";
       }
-
     } else {
-
-      banner.textContent =
-        isMyTurn
-          ? "Your turn"
-          : "Opponent's turn…";
+      banner.textContent = isMyTurn
+        ? "Your turn"
+        : "Opponent's turn…";
     }
   }
 
+  // -----------------------------
+  // PLAYER CARDS
+  // -----------------------------
 
-  /*
-     Player cards.
-  */
-
-  const meCard =
-    document.getElementById(
-      "meCard"
-    );
-
-  const opponentCard =
-    document.getElementById(
-      "opponentCard"
-    );
+  const meCard = document.getElementById("meCard");
+  const opponentCard = document.getElementById("opponentCard");
 
   if (meCard) {
-    meCard.classList.toggle(
-      "active-turn",
-      isMyTurn
-    );
+    meCard.classList.toggle("active-turn", isMyTurn);
   }
 
   if (opponentCard) {
     opponentCard.classList.toggle(
       "active-turn",
-      !isMyTurn &&
-      room.status === "active"
+      !isMyTurn && room.status === "active"
     );
   }
 
+  // -----------------------------
+  // BOARD
+  // -----------------------------
 
-  /*
-     Board cells.
-  */
+  const boardData = Array.isArray(room.board)
+    ? room.board
+    : Array(9).fill(null);
 
-  const boardData =
-    Array.isArray(room.board)
-      ? room.board
-      : Array(9).fill(null);
+  for (let index = 0; index < 9; index++) {
+    const value = boardData[index] || "";
 
-  boardData.forEach(
-    (value, index) => {
+    const cell = document.createElement("div");
 
-      const cell =
-        document.createElement(
-          "div"
-        );
+    cell.className = "cell";
 
-      cell.className =
-        "cell" +
-        (
-          value
-            ? " filled " +
-              value.toLowerCase()
-            : ""
-        );
-
-
-      /*
-         Winning cell.
-      */
-
-      if (
-        room.winLine &&
-        room.winLine.includes(index)
-      ) {
-        cell.classList.add(
-          "win"
-        );
-      }
-
-      cell.textContent =
-        value || "";
-
-
-      /*
-         Only allow your move.
-      */
-
-      if (
-        !value &&
-        isMyTurn &&
-        room.status === "active"
-      ) {
-        cell.onclick = () => {
-          makeMove(
-            index,
-            symbol
-          );
-        };
-      }
-
-      board.appendChild(cell);
+    if (value) {
+      cell.classList.add("filled");
+      cell.classList.add(value.toLowerCase());
     }
-  );
+
+    // Winning cell
+    if (
+      room.winLine &&
+      room.winLine.includes(index)
+    ) {
+      cell.classList.add("win");
+    }
+
+    cell.textContent = value;
+
+    // --------------------------------
+    // IMPORTANT:
+    // Attach click to every empty cell
+    // while game is active.
+    // makeMove() checks the turn.
+    // --------------------------------
+
+    if (!value && room.status === "active") {
+      cell.addEventListener("click", () => {
+        makeMove(index, symbol);
+      });
+    }
+
+    board.appendChild(cell);
+  }
 }
 
 
