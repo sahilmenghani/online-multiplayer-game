@@ -7905,245 +7905,284 @@ async function slCancelSearch() {
 /* =========================================================
    ENTER ROOM
    ========================================================= */
+/* =========================================================
+   ENTER SNAKES ROOM — SAFE VERSION
+   ========================================================= */
 
-async function slEnterRoom(
-  roomId,
-  color
-) {
+async function slEnterRoom(roomId, color) {
 
-  if (
-    !roomId ||
-    !myId
-  ) {
-
+  if (!roomId || !myId) {
     return;
-
   }
 
+  /* -----------------------------------------
+     Clean ONLY Snakes listeners
+  ----------------------------------------- */
 
   slCleanupRoomListener();
-
   slCleanupPrivateListener();
 
+  slRoomId = roomId;
+  slMyColor = color;
 
-  slRoomId =
-    roomId;
+  slResultHandled = false;
+  slMoveInFlight = false;
 
-  slMyColor =
-    color;
+  const roomRef = db.ref("rooms/" + roomId);
 
-  slResultHandled =
-    false;
+  try {
 
-  slMoveInFlight =
-    false;
+    /* -----------------------------------------
+       Get current room first
+    ----------------------------------------- */
 
+    const initial = await roomRef.once("value");
 
-  const roomRef =
-    db.ref(
-      "rooms/" +
-      roomId
+    if (!initial.exists()) {
+
+      console.warn(
+        "Snakes room does not exist:",
+        roomId
+      );
+
+      slCleanupAll();
+
+      slRoomId = null;
+      slMyColor = null;
+
+      showScreen("sl-menu");
+
+      return;
+    }
+
+    const initialRoom = initial.val();
+
+    /* -----------------------------------------
+       SECURITY CHECK
+       Make absolutely sure this is our game.
+    ----------------------------------------- */
+
+    if (
+      initialRoom.game !==
+      "snakes_ladders"
+    ) {
+
+      console.error(
+        "Wrong game room:",
+        initialRoom
+      );
+
+      slCleanupAll();
+
+      slRoomId = null;
+      slMyColor = null;
+
+      showScreen("sl-menu");
+
+      return;
+    }
+
+    /* -----------------------------------------
+       Make sure WE are actually in the room.
+    ----------------------------------------- */
+
+    const myPlayer =
+      initialRoom.players?.[color];
+
+    if (
+      !myPlayer ||
+      myPlayer.id !== myId
+    ) {
+
+      console.error(
+        "Player identity mismatch.",
+        {
+          expected: myId,
+          color: color,
+          player: myPlayer
+        }
+      );
+
+      slCleanupAll();
+
+      slRoomId = null;
+      slMyColor = null;
+
+      showScreen("sl-menu");
+
+      return;
+    }
+
+    /* -----------------------------------------
+       If both players exist → GAME
+    ----------------------------------------- */
+
+    if (
+      initialRoom.players?.R &&
+      initialRoom.players?.B
+    ) {
+
+      slRenderGame(initialRoom);
+
+    } else {
+
+      showScreen("sl-privatewait");
+
+    }
+
+    /* -----------------------------------------
+       REALTIME LISTENER
+    ----------------------------------------- */
+
+    const callback = async (snapshot) => {
+
+      if (!snapshot.exists()) {
+        return;
+      }
+
+      const room = snapshot.val();
+
+      /* ---------------------------------------
+         NEVER react to another game
+      --------------------------------------- */
+
+      if (
+        room.game !==
+        "snakes_ladders"
+      ) {
+        return;
+      }
+
+      /* ---------------------------------------
+         Verify our player still exists
+      --------------------------------------- */
+
+      const currentMe =
+        room.players?.[slMyColor];
+
+      if (
+        !currentMe ||
+        currentMe.id !== myId
+      ) {
+
+        console.warn(
+          "Snakes player disappeared from room."
+        );
+
+        return;
+      }
+
+      /* ---------------------------------------
+         OPPONENT LEFT
+         
+         Only accept it if:
+         - status says opponent-left
+         - leftPlayer exists
+         - leftPlayer is NOT us
+      --------------------------------------- */
+
+      if (
+        room.status ===
+        "opponent-left"
+      ) {
+
+        if (
+          room.leftPlayer &&
+          room.leftPlayer !== myId
+        ) {
+
+          if (slResultHandled) {
+            return;
+          }
+
+          slResultHandled = true;
+
+          showNotification(
+            "Your opponent left the room."
+          );
+
+          slCleanupRoomListener();
+
+          setTimeout(() => {
+
+            slRoomId = null;
+            slMyColor = null;
+            slMoveInFlight = false;
+
+            showScreen("home");
+
+          }, 1200);
+
+        }
+
+        return;
+      }
+
+      /* ---------------------------------------
+         FINISHED
+      --------------------------------------- */
+
+      if (
+        room.status ===
+        "finished"
+      ) {
+
+        await slHandleGameEnd(room);
+
+        return;
+      }
+
+      /* ---------------------------------------
+         ACTIVE GAME
+      --------------------------------------- */
+
+      if (
+        room.status === "active" &&
+        room.players?.R &&
+        room.players?.B
+      ) {
+
+        slRenderGame(room);
+
+      }
+
+    };
+
+    /* -----------------------------------------
+       Save listener references
+    ----------------------------------------- */
+
+    slRoomRef = roomRef;
+    slRoomCallback = callback;
+
+    /* -----------------------------------------
+       Start listener
+    ----------------------------------------- */
+
+    roomRef.on(
+      "value",
+      callback
     );
 
+  } catch (error) {
 
-  /*
-     Get the room immediately.
-
-     This prevents waiting for a later
-     Firebase change before showing
-     the board.
-  */
-
-  const initial =
-    await roomRef.once(
-      "value"
-    );
-
-
-  if (
-    !initial.exists()
-  ) {
-
-    alert(
-      "This match no longer exists."
+    console.error(
+      "SNAKES ENTER ROOM ERROR:",
+      error
     );
 
     slCleanupAll();
 
     slRoomId = null;
     slMyColor = null;
+    slMoveInFlight = false;
 
-    showScreen(
-      "sl-menu"
+    showNotification(
+      "Could not open the game."
     );
 
-    return;
-
+    showScreen("sl-menu");
   }
-
-
-  const initialRoom =
-    initial.val();
-
-
-  if (
-    !initialRoom.players?.R ||
-    !initialRoom.players?.B
-  ) {
-
-    /*
-       If the second player isn't visible
-       yet, wait for Firebase.
-    */
-
-    showScreen(
-      "sl-privatewait"
-    );
-
-  } else {
-
-    /*
-       Both players exist.
-
-       Open board immediately.
-    */
-
-    slRenderGame(
-      initialRoom
-    );
-
-  }
-
-
-  /*
-     NOW attach realtime listener.
-
-     Every roll, position change,
-     turn change, and game result
-     comes through here.
-  */
-
-  const callback =
-    async (snapshot) => {
-
-      if (
-        !snapshot.exists()
-      ) {
-
-        return;
-
-      }
-
-
-      const room =
-        snapshot.val();
-
-
-      /*
-         If opponent left.
-      */
-
-      if (
-        room.status ===
-          "opponent-left"
-      ) {
-
-        if (
-          slResultHandled
-        ) {
-
-          return;
-
-        }
-
-
-        slResultHandled =
-          true;
-
-
-        showNotification(
-          "Your opponent left the room."
-        );
-
-
-        slCleanupRoomListener();
-
-
-        setTimeout(() => {
-
-          slRoomId =
-            null;
-
-          slMyColor =
-            null;
-
-          showScreen(
-            "home"
-          );
-
-        }, 1200);
-
-
-        return;
-
-      }
-
-
-      /*
-         Game finished.
-      */
-
-      if (
-        room.status ===
-          "finished"
-      ) {
-
-        await slHandleGameEnd(
-          room
-        );
-
-        return;
-
-      }
-
-
-      /*
-         Active game.
-
-         RENDER FOR BOTH PLAYERS.
-
-         This is the key fix.
-      */
-
-      if (
-        room.status ===
-          "active" &&
-
-        room.players?.R &&
-        room.players?.B
-      ) {
-
-        slRenderGame(
-          room
-        );
-
-      }
-
-    };
-
-
-  slRoomRef =
-    roomRef;
-
-  slRoomCallback =
-    callback;
-
-
-  roomRef.on(
-    "value",
-    callback
-  );
-
 
 }
 
@@ -8220,7 +8259,37 @@ function slRenderGame(
   /*
      Names.
   */
+/* -----------------------------------------
+   Update player token colors
+----------------------------------------- */
 
+const myToken =
+  document.querySelector(
+    "#slMeCard .sl-player-token"
+  );
+
+const opponentToken =
+  document.querySelector(
+    "#slOpponentCard .sl-player-token"
+  );
+
+if (myToken) {
+
+  myToken.textContent =
+    slMyColor === "R"
+      ? "🔴"
+      : "🔵";
+
+}
+
+if (opponentToken) {
+
+  opponentToken.textContent =
+    opponentColor === "R"
+      ? "🔴"
+      : "🔵";
+
+}
   const myName =
     document.getElementById(
       "slMyName"
@@ -8409,248 +8478,523 @@ function slRenderGame(
 /* =========================================================
    RENDER BOARD
    ========================================================= */
+/* =========================================================
+   SVG SNAKES & LADDERS BOARD
+   ========================================================= */
 
-function slRenderBoard(
-  room
-) {
+function slRenderBoard(room) {
+  const svg = document.getElementById("slSvgBoard");
 
-  const board =
-    document.getElementById(
-      "slBoard"
-    );
+  if (!svg) return;
 
+  svg.innerHTML = "";
 
-  if (!board) {
+  const NS = "http://www.w3.org/2000/svg";
 
-    return;
+  /* -------------------------------------------------------
+     CREATE SVG ELEMENT
+     ------------------------------------------------------- */
 
+  function svgEl(tag, attrs = {}) {
+    const el = document.createElementNS(NS, tag);
+
+    Object.entries(attrs).forEach(([key, value]) => {
+      el.setAttribute(key, value);
+    });
+
+    return el;
   }
 
+  /* -------------------------------------------------------
+     BOARD COORDINATES
 
-  board.innerHTML = "";
+     10 x 10
+     serpentine numbering:
 
+     100 99 98 ... 91
+      81 82 83 ... 90
+      ...
+       1  2  3 ... 10
+     ------------------------------------------------------- */
 
-  const redPosition =
-    Number(
-      room.positions?.R ||
-      1
-    );
+  function getCellPosition(number) {
+    const zero = number - 1;
 
+    const rowFromBottom = Math.floor(zero / 10);
 
-  const bluePosition =
-    Number(
-      room.positions?.B ||
-      1
-    );
+    const positionInRow = zero % 10;
 
+    let col;
 
-  /*
-     100 -> 1 serpentine board.
-  */
-
-  for (
-    let row = 9;
-    row >= 0;
-    row--
-  ) {
-
-    const start =
-      row * 10 + 1;
-
-
-    const numbers = [];
-
-
-    for (
-      let i = 0;
-      i < 10;
-      i++
-    ) {
-
-      numbers.push(
-        start + i
-      );
-
+    if (rowFromBottom % 2 === 0) {
+      col = positionInRow;
+    } else {
+      col = 9 - positionInRow;
     }
 
+    const rowFromTop = 9 - rowFromBottom;
 
+    return {
+      x: col * 100 + 50,
+      y: rowFromTop * 100 + 50
+    };
+  }
+
+  /* -------------------------------------------------------
+     BOARD BACKGROUND
+     ------------------------------------------------------- */
+
+  const boardBg = svgEl("rect", {
+    x: 0,
+    y: 0,
+    width: 1000,
+    height: 1000,
+    rx: 18,
+    fill: "#0d0b22"
+  });
+
+  svg.appendChild(boardBg);
+
+  /* -------------------------------------------------------
+     CELLS
+     ------------------------------------------------------- */
+
+  for (let number = 1; number <= 100; number++) {
+    const pos = getCellPosition(number);
+
+    const zero = number - 1;
+
+    const rowFromBottom = Math.floor(zero / 10);
+    const positionInRow = zero % 10;
+
+    let col;
+
+    if (rowFromBottom % 2 === 0) {
+      col = positionInRow;
+    } else {
+      col = 9 - positionInRow;
+    }
+
+    const rowFromTop = 9 - rowFromBottom;
+
+    const rect = svgEl("rect", {
+      x: col * 100,
+      y: rowFromTop * 100,
+      width: 100,
+      height: 100,
+      class:
+        number === 1
+          ? "sl-svg-cell sl-svg-start"
+          : number === 100
+            ? "sl-svg-cell sl-svg-finish"
+            : "sl-svg-cell"
+    });
+
+    svg.appendChild(rect);
+
+    const text = svgEl("text", {
+      x: col * 100 + 12,
+      y: rowFromTop * 100 + 28,
+      class: "sl-svg-number"
+    });
+
+    text.textContent = number;
+
+    svg.appendChild(text);
+  }
+
+  /* -------------------------------------------------------
+     CENTER POINT OF A CELL
+     ------------------------------------------------------- */
+
+  function cell(number) {
+    return getCellPosition(number);
+  }
+
+  /* =======================================================
+     LADDERS
+     ======================================================= */
+
+  Object.entries(SL_LADDERS).forEach(([from, to]) => {
+    from = Number(from);
+    to = Number(to);
+
+    const start = cell(from);
+    const end = cell(to);
+
+    drawLadder(start, end);
+  });
+
+  function drawLadder(start, end) {
     /*
-       Reverse alternate rows.
+      Vector from bottom → top
     */
 
-    if (
-      (9 - row) % 2 ===
-      1
-    ) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
 
-      numbers.reverse();
+    const length = Math.sqrt(dx * dx + dy * dy);
 
-    }
+    if (!length) return;
 
+    const nx = -dy / length;
+    const ny = dx / length;
 
-    numbers.forEach(
-      (number) => {
+    const offset = 20;
 
-        const cell =
-          document.createElement(
-            "div"
-          );
+    /* rails */
 
+    const rail1Start = {
+      x: start.x + nx * offset,
+      y: start.y + ny * offset
+    };
 
-        cell.className =
-          "sl-cell";
+    const rail1End = {
+      x: end.x + nx * offset,
+      y: end.y + ny * offset
+    };
 
+    const rail2Start = {
+      x: start.x - nx * offset,
+      y: start.y - ny * offset
+    };
 
-        /*
-           Number.
-        */
+    const rail2End = {
+      x: end.x - nx * offset,
+      y: end.y - ny * offset
+    };
 
-        const numberEl =
-          document.createElement(
-            "span"
-          );
+    const rail1 = svgEl("line", {
+      x1: rail1Start.x,
+      y1: rail1Start.y,
+      x2: rail1End.x,
+      y2: rail1End.y,
+      class: "sl-ladder-rail"
+    });
 
+    const rail2 = svgEl("line", {
+      x1: rail2Start.x,
+      y1: rail2Start.y,
+      x2: rail2End.x,
+      y2: rail2End.y,
+      class: "sl-ladder-rail"
+    });
 
-        numberEl.className =
-          "sl-number";
+    svg.appendChild(rail1);
+    svg.appendChild(rail2);
 
+    /* rungs */
 
-        numberEl.textContent =
-          number;
-
-
-        cell.appendChild(
-          numberEl
-        );
-
-
-        /*
-           Ladder.
-        */
-
-        if (
-          SL_LADDERS[number]
-        ) {
-
-          const icon =
-            document.createElement(
-              "span"
-            );
-
-
-          icon.className =
-            "sl-special";
-
-
-          icon.textContent =
-            "🪜";
-
-
-          cell.appendChild(
-            icon
-          );
-
-        }
-
-
-        /*
-           Snake.
-        */
-
-        if (
-          SL_SNAKES[number]
-        ) {
-
-          const icon =
-            document.createElement(
-              "span"
-            );
-
-
-          icon.className =
-            "sl-special";
-
-
-          icon.textContent =
-            "🐍";
-
-
-          cell.appendChild(
-            icon
-          );
-
-        }
-
-
-        /*
-           Red player.
-        */
-
-        if (
-          redPosition ===
-          number
-        ) {
-
-          const piece =
-            document.createElement(
-              "span"
-            );
-
-
-          piece.className =
-            "sl-piece sl-piece-one";
-
-
-          piece.textContent =
-            "🔴";
-
-
-          cell.appendChild(
-            piece
-          );
-
-        }
-
-
-        /*
-           Blue player.
-        */
-
-        if (
-          bluePosition ===
-          number
-        ) {
-
-          const piece =
-            document.createElement(
-              "span"
-            );
-
-
-          piece.className =
-            "sl-piece sl-piece-two";
-
-
-          piece.textContent =
-            "🔵";
-
-
-          cell.appendChild(
-            piece
-          );
-
-        }
-
-
-        board.appendChild(
-          cell
-        );
-
-      }
+    const rungCount = Math.max(
+      4,
+      Math.floor(length / 55)
     );
 
+    for (let i = 1; i < rungCount; i++) {
+      const t = i / rungCount;
+
+      const centerX =
+        start.x + dx * t;
+
+      const centerY =
+        start.y + dy * t;
+
+      const rung = svgEl("line", {
+        x1: centerX + nx * offset,
+        y1: centerY + ny * offset,
+        x2: centerX - nx * offset,
+        y2: centerY - ny * offset,
+        class: "sl-ladder-rung"
+      });
+
+      svg.appendChild(rung);
+    }
   }
 
+  /* =======================================================
+     SNAKES
+     ======================================================= */
+
+  Object.entries(SL_SNAKES).forEach(([from, to], index) => {
+    from = Number(from);
+    to = Number(to);
+
+    const start = cell(from);
+    const end = cell(to);
+
+    drawSnake(start, end, index);
+  });
+
+  function drawSnake(start, end, index) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+
+    const distance = Math.sqrt(
+      dx * dx + dy * dy
+    );
+
+    /*
+      Perpendicular direction
+      creates the snake's curves.
+    */
+
+    const px = -dy / distance;
+    const py = dx / distance;
+
+    const curveAmount =
+      35 + (index % 3) * 18;
+
+    const direction =
+      index % 2 === 0 ? 1 : -1;
+
+    const c1x =
+      start.x +
+      dx * 0.28 +
+      px * curveAmount * direction;
+
+    const c1y =
+      start.y +
+      dy * 0.28 +
+      py * curveAmount * direction;
+
+    const c2x =
+      start.x +
+      dx * 0.72 -
+      px * curveAmount * direction;
+
+    const c2y =
+      start.y +
+      dy * 0.72 -
+      py * curveAmount * direction;
+
+    const pathData = `
+      M ${start.x} ${start.y}
+      C
+      ${c1x} ${c1y},
+      ${c2x} ${c2y},
+      ${end.x} ${end.y}
+    `;
+
+    /* main snake */
+
+    const snake = svgEl("path", {
+      d: pathData,
+      class: "sl-snake-body"
+    });
+
+    svg.appendChild(snake);
+
+    /* highlight */
+
+    const highlight = svgEl("path", {
+      d: pathData,
+      class: "sl-snake-highlight"
+    });
+
+    svg.appendChild(highlight);
+
+    /* snake head */
+
+    drawSnakeHead(start, dx, dy);
+
+    /* tongue */
+
+    drawSnakeTongue(start, dx, dy);
+  }
+
+  /* -------------------------------------------------------
+     SNAKE HEAD
+     ------------------------------------------------------- */
+
+  function drawSnakeHead(pos, dx, dy) {
+    const angle =
+      Math.atan2(dy, dx) * 180 / Math.PI;
+
+    const group = svgEl("g", {
+      transform:
+        `translate(${pos.x} ${pos.y}) rotate(${angle})`
+    });
+
+    const head = svgEl("ellipse", {
+      cx: 0,
+      cy: 0,
+      rx: 32,
+      ry: 25,
+      fill: "#ff4d97",
+      stroke: "#ff9fc5",
+      "stroke-width": 3
+    });
+
+    group.appendChild(head);
+
+    /* eyes */
+
+    const eye1 = svgEl("circle", {
+      cx: 13,
+      cy: -10,
+      r: 6,
+      class: "sl-snake-eye"
+    });
+
+    const eye2 = svgEl("circle", {
+      cx: 13,
+      cy: 10,
+      r: 6,
+      class: "sl-snake-eye"
+    });
+
+    const pupil1 = svgEl("circle", {
+      cx: 15,
+      cy: -10,
+      r: 2.5,
+      class: "sl-snake-pupil"
+    });
+
+    const pupil2 = svgEl("circle", {
+      cx: 15,
+      cy: 10,
+      r: 2.5,
+      class: "sl-snake-pupil"
+    });
+
+    group.appendChild(eye1);
+    group.appendChild(eye2);
+
+    group.appendChild(pupil1);
+    group.appendChild(pupil2);
+
+    svg.appendChild(group);
+  }
+
+  /* -------------------------------------------------------
+     TONGUE
+     ------------------------------------------------------- */
+
+  function drawSnakeTongue(pos, dx, dy) {
+    const angle =
+      Math.atan2(dy, dx);
+
+    const tx =
+      pos.x + Math.cos(angle) * 33;
+
+    const ty =
+      pos.y + Math.sin(angle) * 33;
+
+    const tx2 =
+      pos.x + Math.cos(angle) * 55;
+
+    const ty2 =
+      pos.y + Math.sin(angle) * 55;
+
+    const tongue = svgEl("path", {
+      d: `
+        M ${tx} ${ty}
+        L ${tx2} ${ty2}
+        M ${tx2} ${ty2}
+        L ${tx2 + 8} ${ty2 - 7}
+        M ${tx2} ${ty2}
+        L ${tx2 + 8} ${ty2 + 7}
+      `,
+      class: "sl-snake-tongue"
+    });
+
+    svg.appendChild(tongue);
+  }
+
+  /* =======================================================
+     TOKENS
+     ======================================================= */
+
+  if (room?.positions) {
+    drawToken(
+      room.positions.R,
+      "red",
+      room.players?.R?.avatar || "R"
+    );
+
+    drawToken(
+      room.positions.B,
+      "blue",
+      room.players?.B?.avatar || "B"
+    );
+  }
+
+  function drawToken(number, color, label) {
+    if (!number) return;
+
+    const pos = cell(number);
+
+    const group = svgEl("g", {
+      class:
+        `sl-svg-token sl-token-${color}`,
+      transform:
+        `translate(${pos.x} ${pos.y})`
+    });
+
+    /*
+      token shadow
+    */
+
+    const shadow = svgEl("ellipse", {
+      cx: 0,
+      cy: 17,
+      rx: 25,
+      ry: 8,
+      fill: "rgba(0,0,0,0.45)"
+    });
+
+    group.appendChild(shadow);
+
+    /*
+      token body
+    */
+
+    const tokenColor =
+      color === "red"
+        ? "#ff4d97"
+        : "#3fe0d0";
+
+    const lightColor =
+      color === "red"
+        ? "#ffb5d3"
+        : "#b8fff7";
+
+    const body = svgEl("path", {
+      d: `
+        M -20 12
+        Q -23 30 0 32
+        Q 23 30 20 12
+        Z
+
+        M -15 12
+        Q -11 -4 0 -13
+        Q 11 -4 15 12
+        Z
+      `,
+      fill: tokenColor,
+      stroke: "rgba(255,255,255,0.65)",
+      "stroke-width": 2
+    });
+
+    group.appendChild(body);
+
+    /*
+      token shine
+    */
+
+    const shine = svgEl("ellipse", {
+      cx: -7,
+      cy: -5,
+      rx: 5,
+      ry: 8,
+      fill: lightColor,
+      opacity: 0.7
+    });
+
+    group.appendChild(shine);
+
+    svg.appendChild(group);
+  }
 }
 
 

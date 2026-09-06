@@ -753,7 +753,6 @@ input[type="text"] {
   padding: 20px 0 50px;
 }
 
-
 /* ---------- PLAYER CARDS ---------- */
 
 .cf-player-card {
@@ -776,8 +775,7 @@ input[type="text"] {
 
 .cf-player-card.active-turn {
   border-color: var(--lime);
-  box-shadow:
-    0 0 16px rgba(140, 255, 107, 0.25);
+  box-shadow: 0 0 16px rgba(140, 255, 107, 0.25);
 }
 
 .cf-player-avatar {
@@ -786,12 +784,7 @@ input[type="text"] {
 
   border-radius: 50%;
 
-  background:
-    linear-gradient(
-      135deg,
-      var(--pink),
-      var(--violet)
-    );
+  background: linear-gradient(135deg, var(--pink), var(--violet));
 
   display: flex;
   align-items: center;
@@ -815,7 +808,6 @@ input[type="text"] {
   font-size: 12px;
   color: var(--ink-dim);
 }
-
 
 /* ---------- PIECES ---------- */
 
@@ -848,7 +840,6 @@ input[type="text"] {
     inset 0 2px 5px rgba(255, 255, 255, 0.2);
 }
 
-
 /* ---------- TURN ---------- */
 
 .cf-turn-banner {
@@ -862,23 +853,16 @@ input[type="text"] {
   min-height: 18px;
 }
 
-
 /* ---------- BOARD ---------- */
 
 .cf-board {
   display: grid;
 
-  grid-template-columns:
-    repeat(7, 1fr);
+  grid-template-columns: repeat(7, 1fr);
 
   gap: 7px;
 
-  background:
-    linear-gradient(
-      145deg,
-      var(--bg-panel-2),
-      var(--bg-panel)
-    );
+  background: linear-gradient(145deg, var(--bg-panel-2), var(--bg-panel));
 
   border: 1px solid var(--line);
 
@@ -888,10 +872,8 @@ input[type="text"] {
 
   margin: 12px 0 16px;
 
-  box-shadow:
-    0 18px 45px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.3);
 }
-
 
 /* ---------- BOARD CELL ---------- */
 
@@ -902,8 +884,7 @@ input[type="text"] {
 
   background: var(--bg-deep);
 
-  border: 1px solid
-    rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 
   position: relative;
 
@@ -920,11 +901,8 @@ input[type="text"] {
 
   border-color: var(--cyan);
 
-  box-shadow:
-    0 0 12px
-    rgba(63, 224, 208, 0.25);
+  box-shadow: 0 0 12px rgba(63, 224, 208, 0.25);
 }
-
 
 /* ---------- PIECES ON BOARD ---------- */
 
@@ -935,8 +913,7 @@ input[type="text"] {
 
   box-shadow:
     0 0 14px rgba(255, 77, 151, 0.45),
-    inset 0 3px 6px
-      rgba(255, 255, 255, 0.2);
+    inset 0 3px 6px rgba(255, 255, 255, 0.2);
 }
 
 .cf-cell.yellow {
@@ -946,10 +923,8 @@ input[type="text"] {
 
   box-shadow:
     0 0 14px rgba(255, 201, 74, 0.45),
-    inset 0 3px 6px
-      rgba(255, 255, 255, 0.2);
+    inset 0 3px 6px rgba(255, 255, 255, 0.2);
 }
-
 
 /* ---------- WINNING FOUR ---------- */
 
@@ -960,8 +935,7 @@ input[type="text"] {
     0 0 10px white,
     0 0 25px var(--gold);
 
-  animation:
-    cfWinPulse 0.8s infinite alternate;
+  animation: cfWinPulse 0.8s infinite alternate;
 }
 
 @keyframes cfWinPulse {
@@ -974,16 +948,15 @@ input[type="text"] {
   }
 }
 
-
 /* ---------- LEAVE ---------- */
 
 .cf-leave-btn {
   max-width: 240px;
   margin: 20px auto 0;
   display: block;
-}
-/* =========================================================
+} /* =========================================================
    SNAKES & LADDERS
+   ARENA NEON SVG BOARD
    ========================================================= */
 
 .sl-game-wrap {
@@ -991,6 +964,10 @@ input[type="text"] {
   margin: 0 auto;
   padding: 20px 10px 50px;
 }
+
+/* =========================================================
+   PLAYERS
+   ========================================================= */
 
 .sl-player-row {
   display: grid;
@@ -1004,20 +981,30 @@ input[type="text"] {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: linear-gradient(
-    160deg,
-    var(--bg-panel),
-    var(--bg-panel-2)
-  );
+
+  background: linear-gradient(160deg, var(--bg-panel), var(--bg-panel-2));
+
   border: 1px solid var(--line);
   border-radius: 14px;
+
   padding: 12px;
+
   min-width: 0;
+
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .sl-player-card.active {
   border-color: var(--cyan);
-  box-shadow: 0 0 18px rgba(63, 224, 208, 0.15);
+
+  box-shadow:
+    0 0 18px rgba(63, 224, 208, 0.15),
+    inset 0 0 18px rgba(63, 224, 208, 0.035);
+
+  transform: translateY(-1px);
 }
 
 .sl-player-card strong {
@@ -1027,131 +1014,418 @@ input[type="text"] {
 
 .sl-player-card small {
   display: block;
+
   color: var(--ink-dim);
+
   font-size: 11px;
+
   margin-top: 3px;
 }
 
 .sl-player-token {
   width: 38px;
   height: 38px;
+
   display: flex;
   align-items: center;
   justify-content: center;
+
   border-radius: 50%;
+
   font-size: 23px;
+
   background: var(--bg-deep);
+
+  border: 1px solid var(--line);
+
   flex-shrink: 0;
 }
 
+/* =========================================================
+   TURN BANNER
+   ========================================================= */
+
 .sl-turn-banner {
   padding: 9px 15px;
+
   border-radius: 999px;
+
   background: var(--bg-panel-2);
+
   border: 1px solid var(--line);
+
   color: var(--cyan);
+
   font-size: 12px;
   font-weight: 700;
+
   text-align: center;
+
   white-space: nowrap;
+
+  box-shadow: 0 0 15px rgba(63, 224, 208, 0.05);
 }
 
-
-/* BOARD */
+/* =========================================================
+   SVG BOARD CONTAINER
+   ========================================================= */
 
 .sl-board-shell {
-  width: min(92vw, 650px);
-  margin: 0 auto;
-  padding: 10px;
-  border-radius: 20px;
-  background: var(--bg-panel);
-  border: 1px solid var(--line);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
-}
-
-.sl-board {
-  display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  overflow: hidden;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-}
-
-
-/* CELLS */
-
-.sl-cell {
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  min-height: 0;
-  border-right: 1px solid rgba(255,255,255,0.06);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  background: var(--bg-panel-2);
-  font-size: clamp(9px, 1.8vw, 15px);
-  font-weight: 700;
+
+  width: min(94vw, 720px);
+
+  aspect-ratio: 1 / 1;
+
+  margin: 20px auto;
+
+  padding: 10px;
+
+  border-radius: 24px;
+
+  background:
+    radial-gradient(
+      circle at 50% 45%,
+      rgba(140, 107, 255, 0.16),
+      transparent 60%
+    ),
+    linear-gradient(145deg, #171337, #0b0920);
+
+  border: 1px solid rgba(140, 107, 255, 0.4);
+
+  box-shadow:
+    0 25px 70px rgba(0, 0, 0, 0.55),
+    0 0 45px rgba(140, 107, 255, 0.12);
+
+  overflow: hidden;
 }
 
-.sl-cell:nth-child(even) {
-  background: var(--bg-panel);
-}
+/* subtle grid glow behind board */
 
-.sl-number {
+.sl-board-shell::before {
+  content: "";
+
   position: absolute;
-  top: 3px;
-  left: 4px;
-  color: var(--ink-dim);
-  font-size: clamp(7px, 1.2vw, 11px);
-  font-weight: 600;
+
+  inset: 0;
+
+  background:
+    linear-gradient(
+      90deg,
+      transparent 49.5%,
+      rgba(63, 224, 208, 0.025) 50%,
+      transparent 50.5%
+    ),
+    linear-gradient(
+      transparent 49.5%,
+      rgba(255, 77, 151, 0.025) 50%,
+      transparent 50.5%
+    );
+
+  background-size: 70px 70px;
+
+  pointer-events: none;
 }
 
-.sl-special {
-  font-size: clamp(13px, 2.5vw, 24px);
-  opacity: 0.85;
-}
+/* bottom neon accent */
 
-.sl-piece {
+.sl-board-shell::after {
+  content: "";
+
   position: absolute;
+
+  left: 15%;
+  right: 15%;
+
   bottom: 5px;
-  z-index: 3;
-  font-size: clamp(18px, 3.5vw, 32px);
-  filter: drop-shadow(0 4px 5px rgba(0,0,0,0.35));
+
+  height: 2px;
+
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--pink),
+    var(--violet),
+    var(--cyan),
+    transparent
+  );
+
+  filter: blur(2px);
+
+  opacity: 0.55;
+
+  pointer-events: none;
 }
 
-.sl-piece-two {
-  left: 5px;
+/* =========================================================
+   SVG BOARD
+   ========================================================= */
+
+.sl-svg-board {
+  position: relative;
+
+  z-index: 2;
+
+  display: block;
+
+  width: 100%;
+  height: 100%;
+
+  border-radius: 17px;
+
+  background: #0d0b22;
+
+  overflow: visible;
+
+  user-select: none;
+
+  -webkit-user-select: none;
 }
 
-.sl-piece-one {
-  right: 5px;
+/* =========================================================
+   SVG CELLS
+   ========================================================= */
+
+.sl-svg-cell {
+  fill: rgba(140, 107, 255, 0.045);
+
+  stroke: rgba(255, 255, 255, 0.09);
+
+  stroke-width: 1;
 }
 
+.sl-svg-cell:nth-of-type(even) {
+  fill: rgba(63, 224, 208, 0.045);
+}
 
-/* DICE */
+/* START */
+
+.sl-svg-start {
+  fill: rgba(63, 224, 208, 0.11);
+
+  stroke: rgba(63, 224, 208, 0.5);
+
+  stroke-width: 2;
+}
+
+/* FINISH */
+
+.sl-svg-finish {
+  fill: rgba(255, 201, 74, 0.12);
+
+  stroke: rgba(255, 201, 74, 0.55);
+
+  stroke-width: 2;
+}
+
+/* =========================================================
+   SVG NUMBERS
+   ========================================================= */
+
+.sl-svg-number {
+  fill: rgba(244, 242, 255, 0.72);
+
+  font-family: "Space Grotesk", Inter, Arial, sans-serif;
+
+  font-size: 25px;
+
+  font-weight: 800;
+
+  pointer-events: none;
+
+  user-select: none;
+}
+
+/* 100 */
+
+.sl-svg-finish-number {
+  fill: var(--gold);
+
+  filter: drop-shadow(0 0 6px rgba(255, 201, 74, 0.6));
+}
+
+/* =========================================================
+   SNAKES
+   ========================================================= */
+
+.sl-snake-body {
+  fill: none;
+
+  stroke: var(--pink);
+
+  stroke-width: 28;
+
+  stroke-linecap: round;
+
+  stroke-linejoin: round;
+
+  filter: drop-shadow(0 0 5px rgba(255, 77, 151, 0.95))
+    drop-shadow(0 0 14px rgba(255, 77, 151, 0.45));
+}
+
+/* snake inner shine */
+
+.sl-snake-highlight {
+  fill: none;
+
+  stroke: rgba(255, 190, 220, 0.55);
+
+  stroke-width: 7;
+
+  stroke-linecap: round;
+
+  pointer-events: none;
+}
+
+/* snake head */
+
+.sl-snake-eye {
+  fill: #ffffff;
+}
+
+.sl-snake-pupil {
+  fill: #100e29;
+}
+
+/* snake tongue */
+
+.sl-snake-tongue {
+  stroke: #ffb5d3;
+
+  stroke-width: 4;
+
+  stroke-linecap: round;
+
+  fill: none;
+}
+
+/* =========================================================
+   LADDERS
+   ========================================================= */
+
+.sl-ladder-rail {
+  stroke: var(--cyan);
+
+  stroke-width: 15;
+
+  stroke-linecap: round;
+
+  filter: drop-shadow(0 0 5px rgba(63, 224, 208, 0.9))
+    drop-shadow(0 0 12px rgba(63, 224, 208, 0.35));
+}
+
+.sl-ladder-rung {
+  stroke: var(--lime);
+
+  stroke-width: 9;
+
+  stroke-linecap: round;
+
+  filter: drop-shadow(0 0 5px rgba(140, 255, 107, 0.7));
+}
+
+/* =========================================================
+   SVG TOKENS
+   ========================================================= */
+
+.sl-svg-token {
+  pointer-events: none;
+
+  transform-box: fill-box;
+
+  transform-origin: center;
+
+  transition: transform 0.08s linear;
+}
+
+/* RED TOKEN */
+
+.sl-token-red {
+  filter: drop-shadow(0 0 7px rgba(255, 77, 151, 0.95))
+    drop-shadow(0 0 15px rgba(255, 77, 151, 0.45));
+}
+
+/* BLUE TOKEN */
+
+.sl-token-blue {
+  filter: drop-shadow(0 0 7px rgba(63, 224, 208, 0.95))
+    drop-shadow(0 0 15px rgba(63, 224, 208, 0.45));
+}
+
+/* =========================================================
+   TOKEN MOVEMENT
+   ========================================================= */
+
+.sl-svg-token.sl-moving {
+  transform: scale(1.15);
+
+  filter: brightness(1.25) drop-shadow(0 0 10px currentColor);
+}
+
+/* =========================================================
+   LAST MOVE
+   ========================================================= */
+
+.sl-last-cell {
+  animation: slLastCellPulse 0.7s ease;
+}
+
+@keyframes slLastCellPulse {
+  0% {
+    opacity: 1;
+  }
+
+  35% {
+    opacity: 0.72;
+  }
+
+  70% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+/* =========================================================
+   DICE CONTROLS
+   ========================================================= */
 
 .sl-controls {
   display: flex;
+
   flex-direction: column;
+
   align-items: center;
+
   margin-top: 22px;
+
   gap: 10px;
 }
 
 .sl-dice {
   width: 70px;
   height: 70px;
+
   display: flex;
+
   align-items: center;
   justify-content: center;
-  background: var(--bg-panel);
+
+  background: linear-gradient(145deg, var(--bg-panel-2), var(--bg-panel));
+
   border: 1px solid var(--line);
+
   border-radius: 18px;
+
   font-size: 38px;
-  transition: transform 0.2s ease;
+
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
 }
 
 .sl-dice.rolling {
@@ -1178,36 +1452,53 @@ input[type="text"] {
 
 .sl-dice-result {
   color: var(--ink-dim);
+
   font-size: 13px;
+
   min-height: 18px;
+
+  text-align: center;
 }
 
 .sl-roll-btn {
   max-width: 240px;
 }
 
+/* =========================================================
+   PRIVATE ROOM CODE
+   ========================================================= */
+
 .sl-room-code {
   margin: 20px auto;
+
   padding: 14px 24px;
+
   width: fit-content;
+
   border-radius: 12px;
-  background: var(--bg-panel);
+
+  background: linear-gradient(145deg, var(--bg-panel-2), var(--bg-panel));
+
   border: 1px solid var(--cyan);
+
   color: var(--cyan);
-  font-family: "Space Grotesk";
+
+  font-family: "Space Grotesk", sans-serif;
+
   font-size: 28px;
+
   font-weight: 700;
+
   letter-spacing: 6px;
+
+  box-shadow: 0 0 20px rgba(63, 224, 208, 0.08);
 }
-
-
 
 /* =========================================================
    MOBILE RESPONSIVE
    ========================================================= */
 
 @media (max-width: 600px) {
-
   /* ---------- GLOBAL ---------- */
 
   html,
@@ -1222,7 +1513,6 @@ input[type="text"] {
     max-width: 100%;
     padding: 0 14px 40px;
   }
-
 
   /* ---------- NAV ---------- */
 
@@ -1274,7 +1564,10 @@ input[type="text"] {
     height: 27px;
     font-size: 14px;
   }
-.cf-board {
+
+  /* ---------- CONNECT FOUR ---------- */
+
+  .cf-board {
     gap: 5px;
     padding: 9px;
     border-radius: 16px;
@@ -1315,13 +1608,17 @@ input[type="text"] {
     font-size: 10px;
   }
 
-.sl-player-row {
+  /* ---------- SNAKES & LADDERS ---------- */
+
+  .sl-player-row {
     grid-template-columns: 1fr;
   }
 
   .sl-turn-banner {
     order: -1;
+
     width: fit-content;
+
     margin: 0 auto;
   }
 
@@ -1330,17 +1627,24 @@ input[type="text"] {
   }
 
   .sl-board-shell {
+    width: 97vw;
+
     padding: 6px;
+
+    margin-left: auto;
+    margin-right: auto;
+
+    border-radius: 17px;
   }
 
-  .sl-piece {
-    bottom: 2px;
+  .sl-svg-board {
+    border-radius: 11px;
   }
 
-  .sl-number {
-    top: 2px;
-    left: 2px;
+  .sl-svg-number {
+    font-size: 25px;
   }
+
   /* ---------- SECTION TITLES ---------- */
 
   .section-title {
@@ -1354,7 +1658,6 @@ input[type="text"] {
   .link-btn {
     font-size: 12px;
   }
-
 
   /* ---------- GAME CARDS ---------- */
 
@@ -1380,7 +1683,6 @@ input[type="text"] {
   .game-card p {
     font-size: 12px;
   }
-
 
   /* ---------- LEADERBOARD ---------- */
 
@@ -1416,7 +1718,6 @@ input[type="text"] {
   .lb-xp {
     font-size: 13px;
   }
-
 
   /* ---------- MODAL ---------- */
 
@@ -1461,7 +1762,6 @@ input[type="text"] {
     font-size: 13px;
   }
 
-
   /* ---------- LOBBY ---------- */
 
   .lobby-wrap {
@@ -1490,7 +1790,6 @@ input[type="text"] {
     letter-spacing: 2px;
   }
 
-
   /* ---------- MATCH FOUND ---------- */
 
   .vs-wrap {
@@ -1516,7 +1815,6 @@ input[type="text"] {
     font-size: 25px;
     transform: rotate(90deg);
   }
-
 
   /* ---------- GAME ---------- */
 
@@ -1555,8 +1853,7 @@ input[type="text"] {
     margin: 8px 0;
   }
 
-
-  /* ---------- BOARD ---------- */
+  /* ---------- TIC TAC TOE BOARD ---------- */
 
   .board {
     width: 100%;
@@ -1571,7 +1868,6 @@ input[type="text"] {
     border-radius: 12px;
     font-size: clamp(32px, 12vw, 44px);
   }
-
 
   /* ---------- RESULT ---------- */
 
@@ -1601,7 +1897,6 @@ input[type="text"] {
   .result-actions button {
     flex: 1;
   }
-
 
   /* ---------- PROFILE ---------- */
 
@@ -1642,83 +1937,3 @@ input[type="text"] {
     font-size: 11px;
   }
 }
-
-
-/* =========================================================
-   EXTRA SMALL PHONES
-   ========================================================= */
-
-@media (max-width: 380px) {
-
-  #app {
-    padding-left: 10px;
-    padding-right: 10px;
-  }
-
-  nav {
-    padding: 10px 0;
-  }
-
-  .logo {
-    font-size: 16px;
-  }
-
-  .logo-mark {
-    width: 27px;
-    height: 27px;
-    font-size: 14px;
-  }
-
-  .online-pill {
-    display: none;
-  }
-
-  .nav-btn {
-    padding: 7px 9px;
-    font-size: 11px;
-  }
-
-  .hero h1 {
-    font-size: 31px;
-  }
-
-  .hero p {
-    font-size: 13px;
-  }
-
-  .stat-row {
-    gap: 15px;
-  }
-
-  .board {
-    gap: 5px;
-  }
-
-  .cell {
-    border-radius: 10px;
-    font-size: 34px;
-  }
-
-  .player-card {
-    padding: 9px 10px;
-  }
-
-  .player-card .pc-avatar {
-    width: 35px;
-    height: 35px;
-  }
-
-  .pc-name {
-    font-size: 12px;
-  }
-
-  .pc-symbol {
-    font-size: 19px;
-  }
-
-  .result-actions {
-    flex-direction: column;
-  }
-}
-```
-
