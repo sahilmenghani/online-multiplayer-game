@@ -1,4 +1,3 @@
-
 /* =========================================================
    ARENA — FIREBASE MULTIPLAYER
    TIC-TAC-TOE
@@ -98,6 +97,14 @@ let searchStartedAt = null;
 
 let aiGame = null;
 let aiMoveTimer = null;
+
+/*
+   Latest known state of the multiplayer room,
+   kept in sync by startRoomListener().
+   setupBoardClicks() reads this instead of
+   a non-existent global.
+*/
+let currentRoomData = null;
 
 /* =========================================================
    BASIC HELPERS
@@ -2078,66 +2085,37 @@ function renderBoard(room, symbol) {
    ========================================================= */
 
 function setupBoardClicks() {
-  const board =
-    document.getElementById(
-      "board"
-    );
+  const board = document.getElementById("board");
 
-  if (!board) {
-    console.error(
-      "ARENA: #board not found"
-    );
+  if (!board) return;
 
-    return;
-  }
+  board.addEventListener("click", (e) => {
+    const cell = e.target.closest(".cell");
 
-  if (
-    board.dataset.clickReady ===
-    "true"
-  ) {
-    return;
-  }
+    if (!cell) return;
 
-  board.dataset.clickReady =
-    "true";
+    const index = Number(cell.dataset.index);
 
-  board.addEventListener(
-    "click",
-    (event) => {
-
-      const cell =
-        event.target.closest(
-          ".cell"
-        );
-
-      if (
-        !cell ||
-        !board.contains(cell)
-      ) {
-        return;
-      }
-
-      const index =
-        Number(
-          cell.dataset.index
-        );
-
-      if (
-        !Number.isInteger(
-          index
-        )
-      ) {
-        return;
-      }
-
-      makeMove(
-        index,
-        mySymbol
-      );
+    // AI GAME (handled here only if aiGame is active;
+    // renderAIBoard() also attaches its own onclick,
+    // but this keeps behavior consistent either way)
+    if (aiGame) {
+      makeAIModePlayerMove(index);
+      return;
     }
-  );
-}
 
+    // HUMAN MULTIPLAYER
+    if (!currentRoomId || !currentRoomData) return;
+
+    if (currentRoomData.status !== "active") return;
+
+    if (currentRoomData.turn !== myId) return;
+
+    if (currentRoomData.board?.[index]) return;
+
+    makeMove(index);
+  });
+}
 
 /* =========================================================
    WINNER CHECK
@@ -2183,209 +2161,134 @@ function checkWinner(board) {
 /* =========================================================
    MAKE MULTIPLAYER MOVE
    ========================================================= */
+let moveInFlight = false;
 
-async function makeMove(index, symbol) {
+async function makeMove(index) {
+  if (!currentRoomId || !myId) return;
 
-  if (!currentRoomId || !myId) {
-    return;
-  }
+  // Prevent a second click from starting a
+  // second transaction before the first one
+  // (and its Firebase retries) has settled.
+  if (moveInFlight) return;
+  moveInFlight = true;
 
-  /*
-     NEVER trust the passed symbol.
-     Always use the symbol Firebase assigned
-     to this client.
-  */
-
-  symbol = mySymbol;
-
-  if (
-    symbol !== "X" &&
-    symbol !== "O"
-  ) {
-    console.error(
-      "ARENA: Invalid player symbol",
-      symbol
-    );
-
-    return;
-  }
-
-  if (
-    index < 0 ||
-    index > 8
-  ) {
-    return;
-  }
-
-  const roomRef =
-    db.ref(
-      "rooms/" +
-        currentRoomId
-    );
+  const roomRef = db.ref("rooms/" + currentRoomId);
 
   try {
+    const result = await roomRef.transaction((room) => {
+      if (!room) return;
 
-    const result =
-      await roomRef.transaction(
-        (room) => {
+      // Game must be active
+      if (room.status !== "active") return;
 
-          if (!room) {
-            return;
-          }
+      // -------------------------------------------------
+      // IMPORTANT:
+      // players are stored as players.X and players.O
+      // NOT players[myId]
+      // -------------------------------------------------
 
-          if (
-            room.status !== "active"
-          ) {
-            return;
-          }
+      let mySymbol = null;
+      let opponentSymbol = null;
 
-          /*
-             REAL TURN CHECK
-          */
+      if (room.players?.X?.id === myId) {
+        mySymbol = "X";
+        opponentSymbol = "O";
+      } else if (room.players?.O?.id === myId) {
+        mySymbol = "O";
+        opponentSymbol = "X";
+      } else {
+        // I am not a player in this room
+        return;
+      }
 
-          if (
-            room.turn !== myId
-          ) {
-            return;
-          }
+      // It must be my turn
+      if (room.turn !== myId) {
+        return;
+      }
 
-          if (
-            !Array.isArray(room.board) ||
-            room.board.length !== 9
-          ) {
-            return;
-          }
+      // Make sure board exists
+      if (!Array.isArray(room.board)) {
+        room.board = Array(9).fill(null);
+      }
 
-          /*
-             Cell already occupied
-          */
+      // Invalid cell
+      if (index < 0 || index > 8) {
+        return;
+      }
 
-          if (room.board[index]) {
-            return;
-          }
+      // Cell already occupied
+      if (room.board[index]) {
+        return;
+      }
 
-          /*
-             Make sure this symbol
-             belongs to this Firebase user.
-          */
+      // -------------------------------------------------
+      // PLACE MOVE
+      // -------------------------------------------------
 
-          const player =
-            room.players?.[symbol];
+      const newBoard = room.board.slice();
+      newBoard[index] = mySymbol;
+      room.board = newBoard;
 
-          if (
-            !player ||
-            player.id !== myId
-          ) {
-            return;
-          }
+      room.moveCount =
+        Number(room.moveCount || 0) + 1;
 
-          /*
-             PLACE MOVE
-          */
+      // -------------------------------------------------
+      // CHECK WIN — always evaluated on the freshly
+      // placed board, never a stale reference, and
+      // draw is only possible if there is NO winner.
+      // -------------------------------------------------
 
-          room.board[index] = symbol;
+      const result = checkWinner(room.board);
 
-          room.moveCount =
-            Number(room.moveCount || 0) + 1;
+      if (result && result.symbol !== "draw") {
+        room.status = "finished";
+        room.winner = myId;
+        room.winLine = result.line;
 
-          /*
-             CHECK WIN / DRAW
-          */
+        return room;
+      }
 
-          const result =
-            checkWinner(room.board);
+      if (result && result.symbol === "draw") {
+        // checkWinner only reports "draw" when
+        // every one of the 9 cells is truthy AND
+        // no 3-in-a-row exists, so this is safe.
+        room.status = "finished";
+        room.winner = "draw";
+        room.winLine = null;
 
-          if (result) {
+        return room;
+      }
 
-            room.status = "finished";
+      // -------------------------------------------------
+      // CHANGE TURN TO OPPONENT
+      // -------------------------------------------------
 
-            room.winLine =
-              result.line;
+      const opponent = room.players?.[opponentSymbol];
 
-            if (
-              result.symbol === "draw"
-            ) {
+      if (!opponent?.id) {
+        return;
+      }
 
-              room.winner = "draw";
+      room.turn = opponent.id;
 
-            } else {
-
-              room.winner =
-                room.players[
-                  result.symbol
-                ].id;
-            }
-
-            room.finishedAt =
-              firebase.database
-                .ServerValue
-                .TIMESTAMP;
-
-          } else {
-
-            /*
-               Switch turn.
-            */
-
-            const nextSymbol =
-              getOpponentSymbol(symbol);
-
-            room.turn =
-              room.players[
-                nextSymbol
-              ].id;
-          }
-
-          return room;
-        }
-      );
-
+      return room;
+    });
 
     if (!result.committed) {
-
       console.log(
-        "Move rejected by Firebase."
+        "Move rejected. Current room:",
+        result.snapshot.val()
       );
 
       return;
     }
 
-    const updatedRoom =
-      result.snapshot.val();
-
-    if (!updatedRoom) {
-      return;
-    }
-
-    /*
-       Render immediately.
-    */
-
-    renderBoard(
-      updatedRoom,
-      mySymbol
-    );
-
-
-    /*
-       Game finished.
-    */
-
-    if (
-      updatedRoom.status === "finished"
-    ) {
-      await handleGameEnd(
-        updatedRoom,
-        mySymbol
-      );
-    }
+    console.log("MOVE SUCCESS:", index);
 
   } catch (error) {
-
-    console.error(
-      "MOVE ERROR:",
-      error
-    );
+    console.error("MAKE MOVE ERROR:", error);
+  } finally {
+    moveInFlight = false;
   }
 }
 
@@ -2420,6 +2323,8 @@ function startRoomListener(
       const room =
         snapshot.val();
 
+      currentRoomData = room;
+
 
       /*
          Opponent left through
@@ -2447,26 +2352,6 @@ function startRoomListener(
 
         return;
       }
-
-
-      const stateKey =
-        JSON.stringify({
-          board: room.board,
-          turn: room.turn,
-          status: room.status,
-          winner: room.winner,
-          winLine: room.winLine,
-        });
-
-      if (
-        stateKey ===
-        lastRoomState
-      ) {
-        return;
-      }
-
-      lastRoomState =
-        stateKey;
 
 
       if (
@@ -2506,6 +2391,8 @@ function cleanupRoomListener() {
     roomListener.off();
     roomListener = null;
   }
+
+  currentRoomData = null;
 }
 
 
@@ -4225,4 +4112,3 @@ window.addEventListener(
    ========================================================= */
 
 boot();
-
