@@ -1,9 +1,11 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <link rel="icon" type="image/png" href="/arena.png" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Arena — Play. Compete. Climb.</title>
+    <link rel="" type="" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap"
@@ -81,14 +83,14 @@
               rock solid.
             </p>
           </div>
-          <div class="game-card locked">
-            <span class="badge-soon">Coming soon</span>
-            <span class="game-emoji">🐍</span>
+          <div class="game-card" onclick="openSnakesLadders()">
+            <span class="badge-live">● LIVE</span>
+            <span class="game-emoji">🐍🎲</span>
             <h3>Snakes & Ladders</h3>
-            <p>Classic luck-based fun with friends across the map.</p>
+            <p>Roll, climb, slide, and race your friend to 100.</p>
           </div>
-          <div class="game-card locked">
-            <span class="badge-soon">Coming soon</span>
+          <div class="game-card" onclick="openConnectFour()">
+            <span class="badge-live">● LIVE</span>
             <span class="game-emoji">🔴🟡</span>
             <h3>Connect Four</h3>
             <p>Drop, think, block, win.</p>
@@ -197,7 +199,339 @@
           </div>
         </div>
       </div>
+      <!-- =========================================================
+     CONNECT FOUR MENU
+     ========================================================= -->
+      <div class="screen" id="screen-cf-menu">
+        <div class="lobby-wrap">
+          <span class="game-emoji">🔴🟡</span>
 
+          <h2>Connect Four</h2>
+
+          <p style="margin-bottom: 26px">
+            Drop your pieces, connect four, and destroy your opponent.
+          </p>
+
+          <div style="max-width: 320px; margin: 0 auto">
+            <button class="btn-primary" onclick="startConnectFourQuickMatch()">
+              ⚡ Find Opponent
+            </button>
+
+            <button class="btn-secondary" onclick="createConnectFourRoom()">
+              🔗 Create Private Room
+            </button>
+
+            <div style="display: flex; gap: 8px; margin-top: 10px">
+              <input
+                type="text"
+                id="cfJoinCodeInput"
+                placeholder="Enter room code"
+                style="margin-bottom: 0; text-transform: uppercase"
+                maxlength="6"
+              />
+
+              <button
+                class="btn-secondary"
+                style="width: auto; white-space: nowrap; margin-top: 0"
+                onclick="joinConnectFourRoom()"
+              >
+                Join
+              </button>
+            </div>
+
+            <button class="btn-secondary" onclick="closeConnectFour()">
+              ← Back
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- =========================================================
+     CONNECT FOUR SEARCHING
+     ========================================================= -->
+      <div class="screen" id="screen-cf-searching">
+        <div class="lobby-wrap">
+          <div class="radar">🔴</div>
+
+          <h2>Finding an opponent…</h2>
+
+          <p id="cfSearchSub">Scanning the arena across India</p>
+
+          <button
+            class="btn-secondary"
+            style="max-width: 220px; margin: 26px auto 0"
+            onclick="cancelConnectFourSearch()"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+      <!-- =========================================================
+     SNAKES & LADDERS MENU
+     ========================================================= -->
+
+      <div class="screen" id="screen-sl-menu">
+        <div class="lobby-wrap">
+          <span class="game-emoji">🐍🎲</span>
+
+          <h2>Snakes & Ladders</h2>
+
+          <p style="margin-bottom: 26px">
+            Roll the dice, climb ladders, avoid snakes, and reach 100 first.
+          </p>
+
+          <div style="max-width: 320px; margin: 0 auto">
+            <button class="btn-primary" onclick="slStartQuickMatch()">
+              ⚡ Find Opponent
+            </button>
+
+            <button class="btn-secondary" onclick="slCreatePrivateRoom()">
+              🔗 Create Private Room
+            </button>
+
+            <div style="display: flex; gap: 8px; margin-top: 10px">
+              <input
+                type="text"
+                id="slJoinCodeInput"
+                placeholder="Enter room code"
+                maxlength="6"
+                style="margin-bottom: 0; text-transform: uppercase"
+              />
+
+              <button
+                class="btn-secondary"
+                style="width: auto; white-space: nowrap; margin-top: 0"
+                onclick="slJoinPrivateRoom()"
+              >
+                Join
+              </button>
+            </div>
+
+            <button class="btn-secondary" onclick="closeSnakesLadders()">
+              ← Back
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- =========================================================
+     SNAKES & LADDERS SEARCHING
+     ========================================================= -->
+
+      <div class="screen" id="screen-sl-searching">
+        <div class="lobby-wrap">
+          <div class="radar">🔍</div>
+
+          <h2>Finding an opponent…</h2>
+
+          <p id="slSearchSub">Scanning the arena across India</p>
+
+          <button
+            class="btn-secondary"
+            style="max-width: 220px; margin: 26px auto 0"
+            onclick="slCancelSearch()"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+
+      <!-- =========================================================
+     SNAKES & LADDERS PRIVATE WAIT
+     ========================================================= -->
+
+      <div class="screen" id="screen-sl-privatewait">
+        <div class="lobby-wrap">
+          <span class="game-emoji">🔗</span>
+
+          <h2>Private Room</h2>
+
+          <p>Send this code to your friend.</p>
+
+          <div class="sl-room-code" id="slPrivateRoomCode">------</div>
+
+          <p id="slPrivateStatus">Waiting for opponent…</p>
+
+          <button class="btn-secondary" onclick="slCancelPrivateRoom()">
+            Cancel
+          </button>
+        </div>
+      </div>
+
+      <!-- =========================================================
+     SNAKES & LADDERS GAME
+     ========================================================= -->
+
+      <div class="screen" id="screen-snakes">
+        <div class="sl-game-wrap">
+          <div class="sl-player-row">
+            <div class="sl-player-card" id="slOpponentCard">
+              <div class="sl-player-token sl-red">🔴</div>
+
+              <div>
+                <strong id="slOpponentName"> Opponent </strong>
+
+                <small id="slOpponentPosition"> Position: 1 </small>
+              </div>
+            </div>
+
+            <div class="sl-turn-banner" id="slTurnBanner">Your turn</div>
+
+            <div class="sl-player-card active" id="slMeCard">
+              <div class="sl-player-token sl-blue">🔵</div>
+
+              <div>
+                <strong id="slMyName"> You </strong>
+
+                <small id="slMyPosition"> Position: 1 </small>
+              </div>
+            </div>
+          </div>
+
+          <div class="sl-board-shell">
+            <div class="sl-board" id="slBoard"></div>
+          </div>
+
+          <div class="sl-controls">
+            <div class="sl-dice" id="slDice">🎲</div>
+
+            <div class="sl-dice-result" id="slDiceResult">Roll the dice</div>
+
+            <button
+              class="btn-primary sl-roll-btn"
+              id="slRollBtn"
+              onclick="slRollDice()"
+            >
+              🎲 Roll Dice
+            </button>
+
+            <button class="btn-secondary" onclick="slLeaveGame()">
+              Leave Game
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- =========================================================
+     SNAKES & LADDERS RESULT
+     ========================================================= -->
+
+      <div class="screen" id="screen-sl-result">
+        <div class="result-wrap">
+          <div class="result-emoji" id="slResultEmoji">🏆</div>
+
+          <div class="result-title win" id="slResultTitle">Victory!</div>
+
+          <p id="slResultSub">You reached 100 first!</p>
+
+          <div class="xp-change pos" id="slXpChange">+25 XP</div>
+
+          <div class="result-actions">
+            <button class="btn-primary" onclick="openSnakesLadders()">
+              Play Again
+            </button>
+
+            <button class="btn-secondary" onclick="showScreen('leaderboard')">
+              Leaderboard
+            </button>
+          </div>
+        </div>
+      </div>
+      <!-- =========================================================
+     CONNECT FOUR PRIVATE WAIT
+     ========================================================= -->
+      <div class="screen" id="screen-cf-privatewait">
+        <div class="lobby-wrap">
+          <div class="radar">🔗</div>
+
+          <h2>Waiting for your friend…</h2>
+
+          <p>Share this code with them:</p>
+
+          <div class="room-code-box">
+            <span id="cfPrivateRoomCode">------</span>
+          </div>
+
+          <p style="font-size: 13px">
+            They can enter this code from Connect Four → Join.
+          </p>
+
+          <button
+            class="btn-secondary"
+            style="max-width: 220px; margin: 20px auto 0"
+            onclick="cancelConnectFourSearch()"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+
+      <!-- =========================================================
+     CONNECT FOUR GAME
+     ========================================================= -->
+      <div class="screen" id="screen-connectfour">
+        <div class="cf-game-wrap">
+          <div class="cf-player-card" id="cfOpponentCard">
+            <div class="cf-player-avatar" id="cfOppAvatar">🐯</div>
+
+            <div class="cf-player-info">
+              <div class="cf-player-name" id="cfOppName">Opponent</div>
+
+              <div class="cf-player-xp" id="cfOppXp">0 XP</div>
+            </div>
+
+            <div class="cf-piece yellow" id="cfOppPiece"></div>
+          </div>
+
+          <div class="cf-turn-banner" id="cfTurnBanner">Your turn</div>
+
+          <div class="cf-board" id="cfBoard"></div>
+
+          <div class="cf-player-card active-turn" id="cfMeCard">
+            <div class="cf-player-avatar" id="cfMeAvatar">🦁</div>
+
+            <div class="cf-player-info">
+              <div class="cf-player-name" id="cfMeName">You</div>
+
+              <div class="cf-player-xp" id="cfMeXp">0 XP</div>
+            </div>
+
+            <div class="cf-piece red" id="cfMePiece"></div>
+          </div>
+
+          <button
+            class="btn-secondary cf-leave-btn"
+            onclick="leaveConnectFourGame()"
+          >
+            ← Leave Game
+          </button>
+        </div>
+      </div>
+
+      <!-- =========================================================
+     CONNECT FOUR RESULT
+     ========================================================= -->
+      <div class="screen" id="screen-cf-result">
+        <div class="result-wrap">
+          <div class="result-emoji" id="cfResultEmoji">🏆</div>
+
+          <div class="result-title win" id="cfResultTitle">Victory!</div>
+
+          <p id="cfResultSub">Nice work!</p>
+
+          <div class="xp-change pos" id="cfXpChange">+25 XP</div>
+
+          <div class="result-actions">
+            <button class="btn-primary" onclick="openConnectFour()">
+              Play Again
+            </button>
+
+            <button class="btn-secondary" onclick="showScreen('leaderboard')">
+              Leaderboard
+            </button>
+          </div>
+        </div>
+      </div>
       <!-- GAME -->
       <div class="screen" id="screen-game">
         <div class="game-wrap">

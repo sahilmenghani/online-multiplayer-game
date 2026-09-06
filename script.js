@@ -4158,3 +4158,5342 @@ window.addEventListener(
    ========================================================= */
 
 boot();
+/* =========================================================
+   ARENA — CONNECT FOUR
+   Firebase Multiplayer
+   Completely separate from Tic-Tac-Toe logic
+   ========================================================= */
+
+
+/* =========================================================
+   CONNECT FOUR STATE
+   ========================================================= */
+
+let cfRoomId = null;
+let cfMyColor = null;
+
+let cfRoomListener = null;
+let cfQueueListener = null;
+let cfPrivateListener = null;
+
+let cfMoveInFlight = false;
+let cfResultHandled = false;
+
+const CF_ROWS = 6;
+const CF_COLS = 7;
+const CF_TOTAL = 42;
+
+
+/* =========================================================
+   OPEN CONNECT FOUR
+   ========================================================= */
+
+function openConnectFour() {
+
+  /*
+     Clean only Connect Four state.
+     We do NOT touch Tic-Tac-Toe state.
+  */
+
+  cfCleanupAllListeners();
+
+  cfRoomId = null;
+  cfMyColor = null;
+
+  cfResultHandled = false;
+  cfMoveInFlight = false;
+
+  showScreen("cf-menu");
+}
+
+
+/* =========================================================
+   CLOSE CONNECT FOUR
+   ========================================================= */
+
+function closeConnectFour() {
+
+  cfCleanupAllListeners();
+
+  cfRoomId = null;
+  cfMyColor = null;
+
+  cfResultHandled = false;
+  cfMoveInFlight = false;
+
+  showScreen("home");
+}
+
+
+/* =========================================================
+   CLEANUP
+   ========================================================= */
+
+function cfCleanupRoomListener() {
+
+  if (cfRoomListener) {
+
+    cfRoomListener.off();
+
+    cfRoomListener = null;
+  }
+}
+
+
+function cfCleanupQueueListener() {
+
+  if (cfQueueListener) {
+
+    cfQueueListener.off();
+
+    cfQueueListener = null;
+  }
+}
+
+
+function cfCleanupPrivateListener() {
+
+  if (
+    cfPrivateListener &&
+    cfRoomId
+  ) {
+
+    db
+      .ref("rooms/" + cfRoomId)
+      .off(
+        "value",
+        cfPrivateListener
+      );
+  }
+
+  cfPrivateListener = null;
+}
+
+
+function cfCleanupAllListeners() {
+
+  cfCleanupRoomListener();
+  cfCleanupQueueListener();
+  cfCleanupPrivateListener();
+}
+
+
+/* =========================================================
+   RANDOM ROOM CODE
+   ========================================================= */
+
+function cfGenerateCode() {
+
+  return Math.random()
+    .toString(36)
+    .slice(2, 8)
+    .toUpperCase();
+}
+
+
+/* =========================================================
+   CREATE PRIVATE ROOM
+   ========================================================= */
+
+async function createConnectFourRoom() {
+
+  if (!myId || !myProfile) {
+
+    alert(
+      "Please finish your profile first."
+    );
+
+    return;
+  }
+
+
+  cfCleanupAllListeners();
+
+  let code = null;
+  let roomId = null;
+
+
+  for (
+    let attempt = 0;
+    attempt < 10;
+    attempt++
+  ) {
+
+    const candidate =
+      cfGenerateCode();
+
+    const candidateId =
+      "cf_priv_" + candidate;
+
+    const snapshot =
+      await db
+        .ref("rooms/" + candidateId)
+        .once("value");
+
+
+    if (!snapshot.exists()) {
+
+      code = candidate;
+      roomId = candidateId;
+
+      break;
+    }
+  }
+
+
+  if (!code || !roomId) {
+
+    alert(
+      "Could not generate a room code. Try again."
+    );
+
+    return;
+  }
+
+
+  const room = {
+
+    id: roomId,
+
+    game: "connectfour",
+
+    code,
+
+    players: {
+
+      R: {
+
+        id: myId,
+
+        name:
+          myProfile.name,
+
+        avatar:
+          myProfile.avatar,
+
+      },
+
+      Y: null,
+    },
+
+
+    board:
+      Array(CF_TOTAL).fill(""),
+
+
+    turn:
+      myId,
+
+
+    status:
+      "waiting",
+
+
+    winner:
+      null,
+
+
+    winLine:
+      null,
+
+
+    moveCount:
+      0,
+
+
+    createdAt:
+      firebase.database
+        .ServerValue
+        .TIMESTAMP,
+  };
+
+
+  try {
+
+    await db
+      .ref("rooms/" + roomId)
+      .set(room);
+
+
+    cfRoomId = roomId;
+    cfMyColor = "R";
+
+    cfResultHandled = false;
+
+
+    const codeElement =
+      document.getElementById(
+        "cfPrivateRoomCode"
+      );
+
+
+    if (codeElement) {
+
+      codeElement.textContent =
+        code;
+    }
+
+
+    showScreen(
+      "cf-privatewait"
+    );
+
+
+    const roomRef =
+      db.ref(
+        "rooms/" + roomId
+      );
+
+
+    cfPrivateListener =
+      async (snapshot) => {
+
+        if (!snapshot.exists()) {
+          return;
+        }
+
+
+        const updated =
+          snapshot.val();
+
+
+        if (
+          updated.game ===
+            "connectfour" &&
+
+          updated.status ===
+            "active" &&
+
+          updated.players?.Y
+        ) {
+
+          roomRef.off(
+            "value",
+            cfPrivateListener
+          );
+
+          cfPrivateListener = null;
+
+
+          await cfEnterRoom(
+            roomId,
+            "R"
+          );
+        }
+      };
+
+
+    roomRef.on(
+      "value",
+      cfPrivateListener
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      "Connect Four private room error:",
+      error
+    );
+
+    alert(
+      "Could not create room: " +
+      error.message
+    );
+  }
+}
+
+
+/* =========================================================
+   JOIN PRIVATE ROOM
+   ========================================================= */
+
+async function joinConnectFourRoom() {
+
+  if (!myId || !myProfile) {
+
+    alert(
+      "Please finish your profile first."
+    );
+
+    return;
+  }
+
+
+  const input =
+    document.getElementById(
+      "cfJoinCodeInput"
+    );
+
+
+  const code =
+    input?.value
+      .trim()
+      .toUpperCase();
+
+
+  if (!code) {
+
+    alert(
+      "Enter a room code."
+    );
+
+    return;
+  }
+
+
+  const roomId =
+    "cf_priv_" + code;
+
+
+  const roomRef =
+    db.ref(
+      "rooms/" + roomId
+    );
+
+
+  try {
+
+    const result =
+      await roomRef.transaction(
+        (room) => {
+
+          if (!room) {
+            return;
+          }
+
+
+          if (
+            room.game !==
+            "connectfour"
+          ) {
+            return;
+          }
+
+
+          if (
+            room.status !==
+            "waiting"
+          ) {
+            return;
+          }
+
+
+          if (
+            room.players?.R?.id ===
+            myId
+          ) {
+            return;
+          }
+
+
+          if (
+            room.players?.Y
+          ) {
+            return;
+          }
+
+
+          room.players.Y = {
+
+            id:
+              myId,
+
+            name:
+              myProfile.name,
+
+            avatar:
+              myProfile.avatar,
+          };
+
+
+          room.status =
+            "active";
+
+
+          return room;
+        }
+      );
+
+
+    if (!result.committed) {
+
+      const check =
+        await roomRef.once(
+          "value"
+        );
+
+
+      if (!check.exists()) {
+
+        alert(
+          "Room not found. Check the code."
+        );
+
+      } else {
+
+        alert(
+          "This room is no longer available."
+        );
+      }
+
+      return;
+    }
+
+
+    cfRoomId = roomId;
+    cfMyColor = "Y";
+
+    cfResultHandled = false;
+
+
+    await cfEnterRoom(
+      roomId,
+      "Y"
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      "Connect Four join error:",
+      error
+    );
+
+    alert(
+      "Could not join room: " +
+      error.message
+    );
+  }
+}
+
+
+/* =========================================================
+   QUICK MATCH
+   ========================================================= */
+
+async function startConnectFourQuickMatch() {
+
+  if (!myId || !myProfile) {
+
+    alert(
+      "Please finish your profile first."
+    );
+
+    return;
+  }
+
+
+  cfCleanupAllListeners();
+
+  cfRoomId = null;
+  cfMyColor = null;
+
+  cfResultHandled = false;
+
+
+  showScreen(
+    "cf-searching"
+  );
+
+
+  const searchSub =
+    document.getElementById(
+      "cfSearchSub"
+    );
+
+
+  if (searchSub) {
+
+    searchSub.textContent =
+      "Looking for an opponent…";
+  }
+
+
+  const queueRef =
+    db.ref(
+      "queues/connectfour"
+    );
+
+
+  const generatedRoomId =
+    "cf_r_" +
+    Math.random()
+      .toString(36)
+      .slice(2, 10);
+
+
+  try {
+
+    const result =
+      await queueRef.transaction(
+        (current) => {
+
+
+          /*
+             Nobody is waiting.
+             Become the waiting player.
+          */
+
+          if (!current) {
+
+            return {
+
+              status:
+                "waiting",
+
+              player: {
+
+                id:
+                  myId,
+
+                name:
+                  myProfile.name,
+
+                avatar:
+                  myProfile.avatar,
+              },
+
+
+              ts:
+                firebase.database
+                  .ServerValue
+                  .TIMESTAMP,
+            };
+          }
+
+
+          /*
+             Someone is already waiting.
+          */
+
+          if (
+            current.status ===
+              "waiting" &&
+
+            current.player &&
+
+            current.player.id !==
+              myId
+          ) {
+
+            return {
+
+              status:
+                "matched",
+
+              roomId:
+                generatedRoomId,
+
+              creatorId:
+                myId,
+
+              creator: {
+
+                id:
+                  myId,
+
+                name:
+                  myProfile.name,
+
+                avatar:
+                  myProfile.avatar,
+              },
+
+
+              opponent:
+                current.player,
+
+
+              ts:
+                firebase.database
+                  .ServerValue
+                  .TIMESTAMP,
+            };
+          }
+
+
+          return current;
+        }
+      );
+
+
+    if (!result.committed) {
+
+      await cfWaitForMatch();
+
+      return;
+    }
+
+
+    const state =
+      result.snapshot.val();
+
+
+    if (
+      state?.status ===
+        "matched" &&
+
+      state.creatorId ===
+        myId &&
+
+      state.opponent
+    ) {
+
+      await cfCreateMatchedRoom(
+        state
+      );
+
+      return;
+    }
+
+
+    await cfWaitForMatch();
+
+
+  } catch (error) {
+
+    console.error(
+      "Connect Four matchmaking error:",
+      error
+    );
+
+
+    if (searchSub) {
+
+      searchSub.textContent =
+        "Unable to connect. Try again.";
+    }
+
+
+    alert(
+      "Matchmaking error: " +
+      error.message
+    );
+  }
+}
+
+
+/* =========================================================
+   WAIT FOR MATCH
+   ========================================================= */
+
+async function cfWaitForMatch() {
+
+  cfCleanupQueueListener();
+
+
+  const queueRef =
+    db.ref(
+      "queues/connectfour"
+    );
+
+
+  const callback =
+    async (snapshot) => {
+
+      const state =
+        snapshot.val();
+
+
+      if (!state) {
+        return;
+      }
+
+
+      if (
+        state.status ===
+          "matched" &&
+
+        state.opponent?.id ===
+          myId
+      ) {
+
+        cfCleanupQueueListener();
+
+
+        await cfCreateMatchedRoom(
+          state
+        );
+      }
+    };
+
+
+  cfQueueListener =
+    queueRef;
+
+
+  queueRef.on(
+    "value",
+    callback
+  );
+}
+
+
+/* =========================================================
+   CREATE MATCHED ROOM
+   ========================================================= */
+
+async function cfCreateMatchedRoom(
+  state
+) {
+
+  const roomId =
+    state.roomId;
+
+
+  const creator =
+    state.creator;
+
+
+  const opponent =
+    state.opponent;
+
+
+  const room = {
+
+    id:
+      roomId,
+
+    game:
+      "connectfour",
+
+
+    players: {
+
+      R: {
+
+        id:
+          creator.id,
+
+        name:
+          creator.name,
+
+        avatar:
+          creator.avatar,
+      },
+
+
+      Y: {
+
+        id:
+          opponent.id,
+
+        name:
+          opponent.name,
+
+        avatar:
+          opponent.avatar,
+      },
+    },
+
+
+    board:
+      Array(CF_TOTAL).fill(""),
+
+
+    turn:
+      creator.id,
+
+
+    status:
+      "active",
+
+
+    winner:
+      null,
+
+
+    winLine:
+      null,
+
+
+    moveCount:
+      0,
+
+
+    createdAt:
+      firebase.database
+        .ServerValue
+        .TIMESTAMP,
+  };
+
+
+  try {
+
+    await db
+      .ref("rooms/" + roomId)
+      .set(room);
+
+
+    /*
+       Remove queue only if it is
+       still this match.
+    */
+
+    await db
+      .ref("queues/connectfour")
+      .transaction(
+        (current) => {
+
+          if (
+            current?.status ===
+              "matched" &&
+
+            current.roomId ===
+              roomId
+          ) {
+
+            return null;
+          }
+
+
+          return current;
+        }
+      );
+
+
+    /*
+       Creator is RED.
+    */
+
+    if (
+      creator.id ===
+      myId
+    ) {
+
+      await cfEnterRoom(
+        roomId,
+        "R"
+      );
+
+    } else {
+
+      /*
+         Opponent is YELLOW.
+      */
+
+      await cfEnterRoom(
+        roomId,
+        "Y"
+      );
+    }
+
+
+  } catch (error) {
+
+    console.error(
+      "Create Connect Four room error:",
+      error
+    );
+  }
+}
+
+
+/* =========================================================
+   ENTER ROOM
+   ========================================================= */
+
+async function cfEnterRoom(
+  roomId,
+  color,
+  retryCount = 0
+) {
+
+  if (
+    !roomId ||
+    !myId
+  ) {
+    return;
+  }
+
+
+  cfRoomId =
+    roomId;
+
+  cfMyColor =
+    color;
+
+
+  cfResultHandled =
+    false;
+
+
+  try {
+
+    const snapshot =
+      await db
+        .ref(
+          "rooms/" +
+          roomId
+        )
+        .once("value");
+
+
+    if (!snapshot.exists()) {
+
+      if (
+        retryCount <
+        15
+      ) {
+
+        setTimeout(
+          () => {
+
+            cfEnterRoom(
+              roomId,
+              color,
+              retryCount + 1
+            );
+
+          },
+          400
+        );
+
+        return;
+      }
+
+
+      alert(
+        "Match could not be loaded."
+      );
+
+      showScreen(
+        "cf-menu"
+      );
+
+      return;
+    }
+
+
+    const room =
+      snapshot.val();
+
+
+    if (
+      room.game !==
+      "connectfour"
+    ) {
+
+      alert(
+        "This is not a Connect Four room."
+      );
+
+      return;
+    }
+
+
+    const me =
+      room.players?.[
+        color
+      ];
+
+
+    const opponentColor =
+      color === "R"
+        ? "Y"
+        : "R";
+
+
+    const opponent =
+      room.players?.[
+        opponentColor
+      ];
+
+
+    if (
+      !me ||
+      !opponent
+    ) {
+
+      if (
+        retryCount <
+        15
+      ) {
+
+        setTimeout(
+          () => {
+
+            cfEnterRoom(
+              roomId,
+              color,
+              retryCount + 1
+            );
+
+          },
+          400
+        );
+
+        return;
+      }
+
+
+      alert(
+        "Waiting for the second player."
+      );
+
+      showScreen(
+        "cf-menu"
+      );
+
+      return;
+    }
+
+
+    cfSetupGameScreen(
+      room,
+      color
+    );
+
+
+    showScreen(
+      "connectfour"
+    );
+
+
+    cfStartRoomListener(
+      roomId
+    );
+
+
+    showNotification(
+      "🎮 Connect Four match started!"
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      "Connect Four enter error:",
+      error
+    );
+  }
+}
+
+
+/* =========================================================
+   GAME SCREEN SETUP
+   ========================================================= */
+
+function cfSetupGameScreen(
+  room,
+  color
+) {
+
+  const opponentColor =
+    color === "R"
+      ? "Y"
+      : "R";
+
+
+  const me =
+    room.players?.[
+      color
+    ];
+
+
+  const opponent =
+    room.players?.[
+      opponentColor
+    ];
+
+
+  if (!me || !opponent) {
+    return;
+  }
+
+
+  const meAvatar =
+    document.getElementById(
+      "cfMeAvatar"
+    );
+
+
+  const meName =
+    document.getElementById(
+      "cfMeName"
+    );
+
+
+  const oppAvatar =
+    document.getElementById(
+      "cfOppAvatar"
+    );
+
+
+  const oppName =
+    document.getElementById(
+      "cfOppName"
+    );
+
+
+  const mePiece =
+    document.getElementById(
+      "cfMePiece"
+    );
+
+
+  const oppPiece =
+    document.getElementById(
+      "cfOppPiece"
+    );
+
+
+  if (meAvatar) {
+
+    meAvatar.textContent =
+      me.avatar ||
+      "🎮";
+  }
+
+
+  if (meName) {
+
+    meName.textContent =
+      (me.name ||
+        "Player") +
+      " (You)";
+  }
+
+
+  if (oppAvatar) {
+
+    oppAvatar.textContent =
+      opponent.avatar ||
+      "🎮";
+  }
+
+
+  if (oppName) {
+
+    oppName.textContent =
+      opponent.name ||
+      "Opponent";
+  }
+
+
+  if (mePiece) {
+
+    mePiece.className =
+      "cf-piece " +
+      (
+        color === "R"
+          ? "red"
+          : "yellow"
+      );
+  }
+
+
+  if (oppPiece) {
+
+    oppPiece.className =
+      "cf-piece " +
+      (
+        opponentColor === "R"
+          ? "red"
+          : "yellow"
+      );
+  }
+
+
+  /*
+     Load XP.
+  */
+
+  Promise.all([
+
+    db
+      .ref(
+        "players/" +
+        me.id
+      )
+      .once("value"),
+
+    db
+      .ref(
+        "players/" +
+        opponent.id
+      )
+      .once("value"),
+
+  ]).then(
+    ([meSnapshot, oppSnapshot]) => {
+
+      const meData =
+        meSnapshot.val();
+
+      const oppData =
+        oppSnapshot.val();
+
+
+      const meXp =
+        document.getElementById(
+          "cfMeXp"
+        );
+
+
+      const oppXp =
+        document.getElementById(
+          "cfOppXp"
+        );
+
+
+      if (meXp) {
+
+        meXp.textContent =
+          Number(
+            meData?.xp || 0
+          ) +
+          " XP";
+      }
+
+
+      if (oppXp) {
+
+        oppXp.textContent =
+          Number(
+            oppData?.xp || 0
+          ) +
+          " XP";
+      }
+    }
+  );
+
+
+  cfRenderBoard(
+    room,
+    color
+  );
+}
+
+
+/* =========================================================
+   REALTIME ROOM LISTENER
+   ========================================================= */
+
+function cfStartRoomListener(
+  roomId
+) {
+
+  cfCleanupRoomListener();
+
+
+  const roomRef =
+    db.ref(
+      "rooms/" +
+      roomId
+    );
+
+
+  cfRoomListener =
+    roomRef;
+
+
+  roomRef.on(
+    "value",
+    async (snapshot) => {
+
+      try {
+
+        if (!snapshot.exists()) {
+          return;
+        }
+
+
+        const room =
+          snapshot.val();
+
+
+        /*
+           Only process Connect Four rooms.
+        */
+
+        if (
+          room.game !==
+          "connectfour"
+        ) {
+          return;
+        }
+
+
+        /*
+           GAME FINISHED
+        */
+
+        if (
+          room.status ===
+            "finished" &&
+
+          !cfResultHandled
+        ) {
+
+          await cfHandleGameEnd(
+            room
+          );
+
+          return;
+        }
+
+
+        /*
+           Normal game update.
+        */
+
+        cfSetupGameScreen(
+          room,
+          cfMyColor
+        );
+
+
+      } catch (error) {
+
+        console.error(
+          "Connect Four listener error:",
+          error
+        );
+      }
+    }
+  );
+}
+
+
+/* =========================================================
+   RENDER BOARD
+   ========================================================= */
+
+function cfRenderBoard(
+  room,
+  color
+) {
+
+  const board =
+    document.getElementById(
+      "cfBoard"
+    );
+
+
+  if (!board) {
+    return;
+  }
+
+
+  board.innerHTML = "";
+
+
+  const boardData =
+    Array.isArray(room.board)
+      ? Array.from(
+          {
+            length:
+              CF_TOTAL
+          },
+          (_, index) =>
+            room.board[index] ||
+            ""
+        )
+      : Array(
+          CF_TOTAL
+        ).fill("");
+
+
+  const isMyTurn =
+    room.status ===
+      "active" &&
+
+    room.turn ===
+      myId;
+
+
+  const banner =
+    document.getElementById(
+      "cfTurnBanner"
+    );
+
+
+  if (banner) {
+
+    if (
+      room.status ===
+      "finished"
+    ) {
+
+      if (
+        room.winner ===
+        "draw"
+      ) {
+
+        banner.textContent =
+          "Draw!";
+
+      } else if (
+        room.winner ===
+        myId
+      ) {
+
+        banner.textContent =
+          "You won!";
+
+      } else {
+
+        banner.textContent =
+          "Opponent won!";
+      }
+
+    } else {
+
+      banner.textContent =
+        isMyTurn
+          ? "Your turn"
+          : "Opponent's turn…";
+    }
+  }
+
+
+  const meCard =
+    document.getElementById(
+      "cfMeCard"
+    );
+
+
+  const opponentCard =
+    document.getElementById(
+      "cfOpponentCard"
+    );
+
+
+  if (meCard) {
+
+    meCard.classList.toggle(
+      "active-turn",
+      isMyTurn
+    );
+  }
+
+
+  if (opponentCard) {
+
+    opponentCard.classList.toggle(
+      "active-turn",
+      !isMyTurn &&
+      room.status ===
+        "active"
+    );
+  }
+
+
+  for (
+    let index = 0;
+    index < CF_TOTAL;
+    index++
+  ) {
+
+    const value =
+      boardData[index];
+
+
+    const cell =
+      document.createElement(
+        "div"
+      );
+
+
+    cell.className =
+      "cf-cell";
+
+
+    cell.dataset.index =
+      index;
+
+
+    if (value) {
+
+      cell.classList.add(
+        "filled"
+      );
+
+
+      cell.classList.add(
+        value === "R"
+          ? "red"
+          : "yellow"
+      );
+    }
+
+
+    if (
+      room.winLine &&
+      room.winLine.includes(
+        index
+      )
+    ) {
+
+      cell.classList.add(
+        "win"
+      );
+    }
+
+
+    if (
+      !value &&
+      room.status ===
+        "active" &&
+      isMyTurn
+    ) {
+
+      cell.style.cursor =
+        "pointer";
+
+
+      cell.onclick = () => {
+
+        const column =
+          index %
+          CF_COLS;
+
+
+        cfMakeMove(
+          column
+        );
+      };
+    }
+
+
+    board.appendChild(
+      cell
+    );
+  }
+}
+
+
+/* =========================================================
+   MAKE MOVE
+   ========================================================= */
+
+async function cfMakeMove(
+  column
+) {
+
+  if (
+    !cfRoomId ||
+    !myId ||
+    !cfMyColor
+  ) {
+    return;
+  }
+
+
+  if (cfMoveInFlight) {
+    return;
+  }
+
+
+  cfMoveInFlight =
+    true;
+
+
+  const roomRef =
+    db.ref(
+      "rooms/" +
+      cfRoomId
+    );
+
+
+  try {
+
+    const result =
+      await roomRef.transaction(
+        (room) => {
+
+          if (!room) {
+            return;
+          }
+
+
+          if (
+            room.game !==
+            "connectfour"
+          ) {
+            return;
+          }
+
+
+          if (
+            room.status !==
+            "active"
+          ) {
+            return;
+          }
+
+
+          if (
+            room.turn !==
+            myId
+          ) {
+            return;
+          }
+
+
+          if (
+            column < 0 ||
+            column >= CF_COLS
+          ) {
+            return;
+          }
+
+
+          /*
+             Normalize board.
+          */
+
+          if (
+            !Array.isArray(
+              room.board
+            )
+          ) {
+
+            room.board =
+              Array(
+                CF_TOTAL
+              ).fill("");
+
+          } else if (
+            room.board.length <
+            CF_TOTAL
+          ) {
+
+            const padded =
+              Array(
+                CF_TOTAL
+              ).fill("");
+
+            for (
+              let i = 0;
+              i <
+              room.board.length;
+              i++
+            ) {
+
+              padded[i] =
+                room.board[i] ||
+                "";
+            }
+
+            room.board =
+              padded;
+          }
+
+
+          /*
+             Find lowest empty row.
+          */
+
+          let targetIndex =
+            -1;
+
+
+          for (
+            let row =
+              CF_ROWS - 1;
+            row >= 0;
+            row--
+          ) {
+
+            const index =
+              row *
+                CF_COLS +
+              column;
+
+
+            if (
+              !room.board[index]
+            ) {
+
+              targetIndex =
+                index;
+
+              break;
+            }
+          }
+
+
+          /*
+             Column is full.
+          */
+
+          if (
+            targetIndex ===
+            -1
+          ) {
+
+            return;
+          }
+
+
+          /*
+             Drop piece.
+          */
+
+          room.board[
+            targetIndex
+          ] =
+            cfMyColor;
+
+
+          room.moveCount =
+            Number(
+              room.moveCount ||
+              0
+            ) + 1;
+
+
+          /*
+             Check winner.
+          */
+
+          const win =
+            cfCheckWinner(
+              room.board
+            );
+
+
+          if (win) {
+
+            room.status =
+              "finished";
+
+
+            room.winner =
+              myId;
+
+
+            room.winLine =
+              win;
+
+
+            return room;
+          }
+
+
+          /*
+             Check draw.
+          */
+
+          const draw =
+            room.board.every(
+              (cell) =>
+                !!cell
+            );
+
+
+          if (draw) {
+
+            room.status =
+              "finished";
+
+
+            room.winner =
+              "draw";
+
+
+            room.winLine =
+              null;
+
+
+            return room;
+          }
+
+
+          /*
+             Find opponent.
+          */
+
+          const opponentColor =
+            cfMyColor ===
+            "R"
+              ? "Y"
+              : "R";
+
+
+          const opponent =
+            room.players?.[
+              opponentColor
+            ];
+
+
+          if (!opponent?.id) {
+            return;
+          }
+
+
+          room.turn =
+            opponent.id;
+
+
+          return room;
+        }
+      );
+
+
+    if (
+      !result.committed
+    ) {
+
+      return;
+    }
+
+
+  } catch (error) {
+
+    console.error(
+      "Connect Four move error:",
+      error
+    );
+
+  } finally {
+
+    cfMoveInFlight =
+      false;
+  }
+}
+
+
+/* =========================================================
+   CHECK CONNECT FOUR WIN
+   ========================================================= */
+
+function cfCheckWinner(
+  board
+) {
+
+  const directions = [
+
+    [0, 1],
+
+    [1, 0],
+
+    [1, 1],
+
+    [1, -1],
+
+  ];
+
+
+  for (
+    let row = 0;
+    row < CF_ROWS;
+    row++
+  ) {
+
+    for (
+      let col = 0;
+      col < CF_COLS;
+      col++
+    ) {
+
+      const index =
+        row *
+          CF_COLS +
+        col;
+
+
+      const player =
+        board[index];
+
+
+      if (!player) {
+        continue;
+      }
+
+
+      for (
+        const [
+          dr,
+          dc
+        ] of directions
+      ) {
+
+        const line = [
+          index
+        ];
+
+
+        for (
+          let step = 1;
+          step < 4;
+          step++
+        ) {
+
+          const nextRow =
+            row +
+            dr *
+              step;
+
+
+          const nextCol =
+            col +
+            dc *
+              step;
+
+
+          if (
+            nextRow < 0 ||
+            nextRow >=
+              CF_ROWS ||
+            nextCol < 0 ||
+            nextCol >=
+              CF_COLS
+          ) {
+
+            break;
+          }
+
+
+          const nextIndex =
+            nextRow *
+              CF_COLS +
+            nextCol;
+
+
+          if (
+            board[
+              nextIndex
+            ] !==
+            player
+          ) {
+
+            break;
+          }
+
+
+          line.push(
+            nextIndex
+          );
+        }
+
+
+        if (
+          line.length ===
+          4
+        ) {
+
+          return line;
+        }
+      }
+    }
+  }
+
+
+  return null;
+}
+
+
+/* =========================================================
+   GAME END
+   ========================================================= */
+
+async function cfHandleGameEnd(
+  room
+) {
+
+  if (
+    !room ||
+    room.status !==
+      "finished"
+  ) {
+    return;
+  }
+
+
+  if (
+    cfResultHandled
+  ) {
+    return;
+  }
+
+
+  cfResultHandled =
+    true;
+
+
+  const draw =
+    room.winner ===
+    "draw";
+
+
+  const iWon =
+    room.winner ===
+    myId;
+
+
+  const opponentColor =
+    cfMyColor ===
+    "R"
+      ? "Y"
+      : "R";
+
+
+  const opponent =
+    room.players?.[
+      opponentColor
+    ];
+
+
+  let emoji;
+  let title;
+  let sub;
+  let xpChange;
+  let resultClass;
+
+
+  if (draw) {
+
+    emoji =
+      "🤝";
+
+    title =
+      "It's a Draw!";
+
+    resultClass =
+      "draw";
+
+    xpChange =
+      5;
+
+    sub =
+      `Evenly matched against ${
+        opponent?.name ||
+        "your opponent"
+      }.`;
+
+
+  } else if (iWon) {
+
+    emoji =
+      "🏆";
+
+    title =
+      "Victory!";
+
+    resultClass =
+      "win";
+
+    xpChange =
+      25;
+
+    sub =
+      `You beat ${
+        opponent?.name ||
+        "your opponent"
+      }. Well played!`;
+
+
+  } else {
+
+    emoji =
+      "💀";
+
+    title =
+      "Defeat";
+
+    resultClass =
+      "lose";
+
+    xpChange =
+      -10;
+
+    sub =
+      `${
+        opponent?.name ||
+        "Your opponent"
+      } got the better of you this time.`;
+  }
+
+
+  const emojiElement =
+    document.getElementById(
+      "cfResultEmoji"
+    );
+
+
+  const titleElement =
+    document.getElementById(
+      "cfResultTitle"
+    );
+
+
+  const subElement =
+    document.getElementById(
+      "cfResultSub"
+    );
+
+
+  const xpElement =
+    document.getElementById(
+      "cfXpChange"
+    );
+
+
+  if (emojiElement) {
+
+    emojiElement.textContent =
+      emoji;
+  }
+
+
+  if (titleElement) {
+
+    titleElement.textContent =
+      title;
+
+
+    titleElement.className =
+      "result-title " +
+      resultClass;
+  }
+
+
+  if (subElement) {
+
+    subElement.textContent =
+      sub;
+  }
+
+
+  if (xpElement) {
+
+    xpElement.textContent =
+      (xpChange >= 0
+        ? "+"
+        : "") +
+      xpChange +
+      " XP";
+
+
+    xpElement.className =
+      "xp-change " +
+      (
+        xpChange >= 0
+          ? "pos"
+          : "neg"
+      );
+  }
+
+
+  /*
+     IMPORTANT:
+     Show result immediately.
+  */
+
+  if (draw) {
+
+    showNotification(
+      "🤝 Connect Four ended in a draw!"
+    );
+
+  } else if (iWon) {
+
+    showNotification(
+      "🏆 You won Connect Four!"
+    );
+
+  } else {
+
+    showNotification(
+      `💀 ${
+        opponent?.name ||
+        "Your opponent"
+      } won Connect Four.`
+    );
+  }
+
+
+  showScreen(
+    "cf-result"
+  );
+
+
+  /*
+     Update player statistics.
+  */
+
+  try {
+
+    const playerRef =
+      db.ref(
+        "players/" +
+        myId
+      );
+
+
+    await playerRef.transaction(
+      (player) => {
+
+        player =
+          player || {
+
+            id:
+              myId,
+
+            name:
+              myProfile?.name ||
+              "Player",
+
+            avatar:
+              myProfile?.avatar ||
+              "🎮",
+
+            xp:
+              0,
+
+            wins:
+              0,
+
+            losses:
+              0,
+
+            draws:
+              0,
+
+            played:
+              0,
+          };
+
+
+        player.played =
+          Number(
+            player.played ||
+            0
+          ) + 1;
+
+
+        if (draw) {
+
+          player.draws =
+            Number(
+              player.draws ||
+              0
+            ) + 1;
+
+        } else if (iWon) {
+
+          player.wins =
+            Number(
+              player.wins ||
+              0
+            ) + 1;
+
+        } else {
+
+          player.losses =
+            Number(
+              player.losses ||
+              0
+            ) + 1;
+        }
+
+
+        player.xp =
+          Math.max(
+            0,
+
+            Number(
+              player.xp ||
+              0
+            ) +
+            xpChange
+          );
+
+
+        return player;
+      }
+    );
+
+
+    /*
+       Refresh local profile.
+    */
+
+    const snapshot =
+      await playerRef.once(
+        "value"
+      );
+
+
+    if (
+      snapshot.exists()
+    ) {
+
+      myProfile =
+        snapshot.val();
+
+
+      localStorage.setItem(
+        "arenaProfile",
+        JSON.stringify(
+          myProfile
+        )
+      );
+
+
+      applyProfileToNav();
+    }
+
+
+    /*
+       Refresh leaderboard.
+    */
+
+    await refreshLeaderboardData();
+
+
+  } catch (error) {
+
+    console.error(
+      "Connect Four stats error:",
+      error
+    );
+  }
+
+
+  /*
+     Stop this player's listener.
+  */
+
+  cfCleanupRoomListener();
+}
+
+
+/* =========================================================
+   CANCEL SEARCH / PRIVATE WAIT
+   ========================================================= */
+
+async function cancelConnectFourSearch() {
+
+  try {
+
+    /*
+       Remove queue only if
+       this player is the one waiting.
+    */
+
+    await db
+      .ref(
+        "queues/connectfour"
+      )
+      .transaction(
+        (current) => {
+
+          if (
+            current?.status ===
+              "waiting" &&
+
+            current.player?.id ===
+              myId
+          ) {
+
+            return null;
+          }
+
+
+          return current;
+        }
+      );
+
+
+  } catch (error) {
+
+    console.error(
+      "Connect Four search cancel error:",
+      error
+    );
+  }
+
+
+  /*
+     If we created a private room,
+     remove it.
+  */
+
+  if (
+    cfRoomId &&
+    cfRoomId.startsWith(
+      "cf_priv_"
+    )
+  ) {
+
+    try {
+
+      await db
+        .ref(
+          "rooms/" +
+          cfRoomId
+        )
+        .remove();
+
+    } catch (error) {
+
+      console.error(
+        "Private room cleanup error:",
+        error
+      );
+    }
+  }
+
+
+  cfCleanupAllListeners();
+
+
+  cfRoomId = null;
+  cfMyColor = null;
+
+  cfResultHandled =
+    false;
+
+
+  showScreen(
+    "cf-menu"
+  );
+}
+
+
+/* =========================================================
+   LEAVE CONNECT FOUR GAME
+   ========================================================= */
+
+async function leaveConnectFourGame() {
+
+  if (!cfRoomId) {
+
+    closeConnectFour();
+
+    return;
+  }
+
+
+  try {
+
+    const roomRef =
+      db.ref(
+        "rooms/" +
+        cfRoomId
+      );
+
+
+    await roomRef.transaction(
+      (room) => {
+
+        if (!room) {
+          return;
+        }
+
+
+        if (
+          room.game !==
+          "connectfour"
+        ) {
+          return;
+        }
+
+
+        if (
+          room.status ===
+          "finished"
+        ) {
+
+          return room;
+        }
+
+
+        room.status =
+          "opponent-left";
+
+
+        room.leftPlayer =
+          myId;
+
+
+        room.leftAt =
+          firebase.database
+            .ServerValue
+            .TIMESTAMP;
+
+
+        return room;
+      }
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      "Connect Four leave error:",
+      error
+    );
+  }
+
+
+  cfCleanupAllListeners();
+
+
+  cfRoomId = null;
+  cfMyColor = null;
+
+  cfResultHandled =
+    false;
+
+
+  showNotification(
+    "You left the Connect Four game."
+  );
+
+
+  showScreen(
+    "home"
+  );
+}/* =========================================================
+   ARENA — SNAKES & LADDERS
+   FIREBASE MULTIPLAYER
+   ========================================================= */
+
+
+/* =========================================================
+   STATE
+   ========================================================= */
+
+let slRoomId = null;
+let slMyColor = null;
+
+let slRoomRef = null;
+let slRoomCallback = null;
+
+let slQueueRef = null;
+let slQueueCallback = null;
+
+let slPrivateRef = null;
+let slPrivateCallback = null;
+
+let slMoveInFlight = false;
+let slResultHandled = false;
+
+
+/* =========================================================
+   BOARD CONSTANTS
+   ========================================================= */
+
+const SL_LAST = 100;
+
+
+/* =========================================================
+   SNAKES
+   ========================================================= */
+
+const SL_SNAKES = {
+
+  99: 54,
+  95: 75,
+  92: 88,
+  89: 68,
+  74: 53,
+  64: 60,
+  62: 19,
+  49: 11,
+  47: 26,
+  16: 6
+
+};
+
+
+/* =========================================================
+   LADDERS
+   ========================================================= */
+
+const SL_LADDERS = {
+
+  2: 38,
+  7: 14,
+  8: 31,
+  15: 26,
+  21: 42,
+  28: 84,
+  36: 44,
+  51: 67,
+  71: 91,
+  78: 98
+
+};
+
+
+/* =========================================================
+   OPEN / CLOSE
+   ========================================================= */
+
+function openSnakesLadders() {
+
+  /*
+     Clean only Snakes & Ladders listeners.
+     Do NOT touch Tic-Tac-Toe listeners.
+  */
+
+  slCleanupAll();
+
+  slRoomId = null;
+  slMyColor = null;
+
+  slMoveInFlight = false;
+  slResultHandled = false;
+
+  const input =
+    document.getElementById(
+      "slJoinCodeInput"
+    );
+
+  if (input) {
+    input.value = "";
+  }
+
+  /*
+     THIS IS THE IMPORTANT PART.
+
+     Clicking the card directly opens the
+     Snakes & Ladders menu.
+  */
+
+  showScreen("sl-menu");
+
+}
+
+
+function closeSnakesLadders() {
+
+  slCleanupAll();
+
+  slRoomId = null;
+  slMyColor = null;
+
+  slMoveInFlight = false;
+  slResultHandled = false;
+
+  showScreen("home");
+
+}
+
+
+/* =========================================================
+   CLEANUP
+   ========================================================= */
+
+function slCleanupRoomListener() {
+
+  if (
+    slRoomRef &&
+    slRoomCallback
+  ) {
+
+    slRoomRef.off(
+      "value",
+      slRoomCallback
+    );
+
+  }
+
+  slRoomRef = null;
+  slRoomCallback = null;
+
+}
+
+
+function slCleanupQueueListener() {
+
+  if (
+    slQueueRef &&
+    slQueueCallback
+  ) {
+
+    slQueueRef.off(
+      "value",
+      slQueueCallback
+    );
+
+  }
+
+  slQueueRef = null;
+  slQueueCallback = null;
+
+}
+
+
+function slCleanupPrivateListener() {
+
+  if (
+    slPrivateRef &&
+    slPrivateCallback
+  ) {
+
+    slPrivateRef.off(
+      "value",
+      slPrivateCallback
+    );
+
+  }
+
+  slPrivateRef = null;
+  slPrivateCallback = null;
+
+}
+
+
+function slCleanupAll() {
+
+  slCleanupRoomListener();
+
+  slCleanupQueueListener();
+
+  slCleanupPrivateListener();
+
+}
+
+
+/* =========================================================
+   PLAYER DATA
+   ========================================================= */
+
+function slPlayerData() {
+
+  return {
+
+    id: myId,
+
+    name:
+      myProfile?.name ||
+      "Player",
+
+    avatar:
+      myProfile?.avatar ||
+      "🎮"
+
+  };
+
+}
+
+
+/* =========================================================
+   ROOM CODE
+   ========================================================= */
+
+function slGenerateCode() {
+
+  return Math.random()
+    .toString(36)
+    .slice(2, 8)
+    .toUpperCase();
+
+}
+
+
+/* =========================================================
+   PRIVATE ROOM — CREATE
+   ========================================================= */
+
+async function slCreatePrivateRoom() {
+
+  if (
+    !myId ||
+    !myProfile
+  ) {
+
+    alert(
+      "Please finish your profile first."
+    );
+
+    return;
+
+  }
+
+
+  slCleanupAll();
+
+  slResultHandled = false;
+
+  let code = null;
+  let roomId = null;
+
+
+  /*
+     Find an unused room code.
+  */
+
+  for (
+    let attempt = 0;
+    attempt < 10;
+    attempt++
+  ) {
+
+    const candidate =
+      slGenerateCode();
+
+    const candidateId =
+      "sl_priv_" +
+      candidate;
+
+    const snapshot =
+      await db
+        .ref(
+          "rooms/" +
+          candidateId
+        )
+        .once("value");
+
+
+    if (!snapshot.exists()) {
+
+      code = candidate;
+
+      roomId = candidateId;
+
+      break;
+
+    }
+
+  }
+
+
+  if (
+    !code ||
+    !roomId
+  ) {
+
+    alert(
+      "Could not generate room code. Try again."
+    );
+
+    return;
+
+  }
+
+
+  const room = {
+
+    id: roomId,
+
+    game:
+      "snakes_ladders",
+
+    code: code,
+
+    players: {
+
+      R:
+        slPlayerData(),
+
+      B:
+        null
+
+    },
+
+    positions: {
+
+      R: 1,
+      B: 1
+
+    },
+
+    turn:
+      myId,
+
+    status:
+      "waiting",
+
+    winner:
+      null,
+
+    lastRoll:
+      null,
+
+    moveCount:
+      0,
+
+    createdAt:
+      firebase.database
+        .ServerValue
+        .TIMESTAMP
+
+  };
+
+
+  try {
+
+    await db
+      .ref(
+        "rooms/" +
+        roomId
+      )
+      .set(room);
+
+
+    slRoomId =
+      roomId;
+
+    slMyColor =
+      "R";
+
+
+    document.getElementById(
+      "slPrivateRoomCode"
+    ).textContent =
+      code;
+
+
+    document.getElementById(
+      "slPrivateStatus"
+    ).textContent =
+      "Waiting for opponent…";
+
+
+    showScreen(
+      "sl-privatewait"
+    );
+
+
+    /*
+       LISTEN FOR PLAYER B.
+
+       This is the critical fix.
+
+       The creator keeps listening to the
+       actual room. As soon as B joins,
+       we call slEnterRoom().
+    */
+
+    const roomRef =
+      db.ref(
+        "rooms/" +
+        roomId
+      );
+
+
+    const callback =
+      async (snapshot) => {
+
+        if (
+          !snapshot.exists()
+        ) {
+
+          return;
+
+        }
+
+
+        const updated =
+          snapshot.val();
+
+
+        /*
+           Opponent joined.
+        */
+
+        if (
+          updated.game ===
+            "snakes_ladders" &&
+
+          updated.status ===
+            "active" &&
+
+          updated.players?.B
+        ) {
+
+          slCleanupPrivateListener();
+
+
+          /*
+             IMPORTANT:
+
+             Creator enters the board here.
+          */
+
+          await slEnterRoom(
+            roomId,
+            "R"
+          );
+
+        }
+
+      };
+
+
+    slPrivateRef =
+      roomRef;
+
+    slPrivateCallback =
+      callback;
+
+
+    roomRef.on(
+      "value",
+      callback
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      "Snakes & Ladders private room error:",
+      error
+    );
+
+    alert(
+      "Could not create room: " +
+      error.message
+    );
+
+  }
+
+}
+
+
+/* =========================================================
+   PRIVATE ROOM — JOIN
+   ========================================================= */
+
+async function slJoinPrivateRoom() {
+
+  if (
+    !myId ||
+    !myProfile
+  ) {
+
+    alert(
+      "Please finish your profile first."
+    );
+
+    return;
+
+  }
+
+
+  const input =
+    document.getElementById(
+      "slJoinCodeInput"
+    );
+
+
+  const code =
+    input?.value
+      .trim()
+      .toUpperCase();
+
+
+  if (!code) {
+
+    alert(
+      "Enter a room code."
+    );
+
+    return;
+
+  }
+
+
+  const roomId =
+    "sl_priv_" +
+    code;
+
+
+  const roomRef =
+    db.ref(
+      "rooms/" +
+      roomId
+    );
+
+
+  try {
+
+    /*
+       Atomically add Player B.
+    */
+
+    const transaction =
+      await roomRef.transaction(
+        (room) => {
+
+          if (!room) {
+
+            return;
+
+          }
+
+
+          if (
+            room.game !==
+            "snakes_ladders"
+          ) {
+
+            return;
+
+          }
+
+
+          if (
+            room.status !==
+            "waiting"
+          ) {
+
+            return;
+
+          }
+
+
+          if (
+            room.players?.B
+          ) {
+
+            return;
+
+          }
+
+
+          room.players =
+            room.players || {};
+
+
+          room.players.B =
+            slPlayerData();
+
+
+          room.status =
+            "active";
+
+
+          return room;
+
+        }
+      );
+
+
+    if (
+      !transaction.committed
+    ) {
+
+      alert(
+        "Room not found or already full."
+      );
+
+      return;
+
+    }
+
+
+    /*
+       We are Player B.
+
+       Enter immediately.
+    */
+
+    slRoomId =
+      roomId;
+
+    slMyColor =
+      "B";
+
+
+    await slEnterRoom(
+      roomId,
+      "B"
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      "Snakes & Ladders join error:",
+      error
+    );
+
+    alert(
+      "Could not join room: " +
+      error.message
+    );
+
+  }
+
+}
+
+
+/* =========================================================
+   QUICK MATCH
+   ========================================================= */
+
+async function slStartQuickMatch() {
+
+  if (
+    !myId ||
+    !myProfile
+  ) {
+
+    alert(
+      "Please finish your profile first."
+    );
+
+    return;
+
+  }
+
+
+  slCleanupAll();
+
+  slResultHandled = false;
+
+  showScreen(
+    "sl-searching"
+  );
+
+
+  const queueRef =
+    db.ref(
+      "queues/snakes_ladders"
+    );
+
+
+  /*
+     Listen BEFORE transaction.
+
+     This means the waiting player
+     doesn't miss the match.
+  */
+
+  const queueCallback =
+    async (snapshot) => {
+
+      const state =
+        snapshot.val();
+
+
+      if (!state) {
+
+        return;
+
+      }
+
+
+      /*
+         Another player matched with us.
+      */
+
+      if (
+        state.status ===
+          "matched" &&
+
+        (
+          state.creator?.id ===
+            myId ||
+
+          state.opponent?.id ===
+            myId
+        )
+      ) {
+
+        slCleanupQueueListener();
+
+        await slHandleQuickMatch(
+          state
+        );
+
+      }
+
+    };
+
+
+  slQueueRef =
+    queueRef;
+
+  slQueueCallback =
+    queueCallback;
+
+
+  queueRef.on(
+    "value",
+    queueCallback
+  );
+
+
+  try {
+
+    const result =
+      await queueRef.transaction(
+        (current) => {
+
+          /*
+             Someone is already waiting.
+
+             Match them.
+          */
+
+          if (
+            current &&
+
+            current.status ===
+              "waiting" &&
+
+            current.player?.id !==
+              myId
+          ) {
+
+            return {
+
+              status:
+                "matched",
+
+              creator:
+                current.player,
+
+              opponent:
+                slPlayerData(),
+
+              matchedAt:
+                firebase.database
+                  .ServerValue
+                  .TIMESTAMP
+
+            };
+
+          }
+
+
+          /*
+             We are already waiting.
+          */
+
+          if (
+            current &&
+
+            current.status ===
+              "waiting" &&
+
+            current.player?.id ===
+              myId
+          ) {
+
+            return current;
+
+          }
+
+
+          /*
+             Become waiting player.
+          */
+
+          return {
+
+            status:
+              "waiting",
+
+            player:
+              slPlayerData(),
+
+            createdAt:
+              firebase.database
+                .ServerValue
+                .TIMESTAMP
+
+          };
+
+        }
+      );
+
+
+    if (
+      !result.committed
+    ) {
+
+      slCleanupQueueListener();
+
+      showScreen(
+        "sl-menu"
+      );
+
+      return;
+
+    }
+
+
+    const queue =
+      result.snapshot.val();
+
+
+    /*
+       The player who completed
+       the transaction as the matcher
+       handles the room creation too.
+    */
+
+    if (
+      queue?.status ===
+        "matched"
+    ) {
+
+      await slHandleQuickMatch(
+        queue
+      );
+
+    }
+
+  } catch (error) {
+
+    console.error(
+      "Snakes & Ladders matchmaking error:",
+      error
+    );
+
+    slCleanupQueueListener();
+
+    showScreen(
+      "sl-menu"
+    );
+
+  }
+
+}
+
+
+/* =========================================================
+   QUICK MATCH — CREATE ONE SHARED ROOM
+   ========================================================= */
+
+async function slHandleQuickMatch(
+  state
+) {
+
+  if (
+    !state?.creator ||
+    !state?.opponent
+  ) {
+
+    return;
+
+  }
+
+
+  /*
+     IMPORTANT:
+
+     Both players calculate the SAME
+     room ID.
+
+     This prevents both browsers from
+     creating two different rooms.
+  */
+
+  const ids = [
+
+    state.creator.id,
+
+    state.opponent.id
+
+  ].sort();
+
+
+  const roomId =
+    "sl_match_" +
+    ids[0] +
+    "_" +
+    ids[1];
+
+
+  const roomRef =
+    db.ref(
+      "rooms/" +
+      roomId
+    );
+
+
+  try {
+
+    /*
+       Only create the room if it
+       doesn't already exist.
+    */
+
+    await roomRef.transaction(
+      (current) => {
+
+        if (current) {
+
+          return current;
+
+        }
+
+
+        return {
+
+          id:
+            roomId,
+
+          game:
+            "snakes_ladders",
+
+          players: {
+
+            R:
+              state.creator,
+
+            B:
+              state.opponent
+
+          },
+
+          positions: {
+
+            R: 1,
+            B: 1
+
+          },
+
+          turn:
+            state.creator.id,
+
+          status:
+            "active",
+
+          winner:
+            null,
+
+          lastRoll:
+            null,
+
+          moveCount:
+            0,
+
+          createdAt:
+            firebase.database
+              .ServerValue
+              .TIMESTAMP
+
+        };
+
+      }
+    );
+
+
+    /*
+       Remove queue only if it is
+       still our match.
+    */
+
+    await db
+      .ref(
+        "queues/snakes_ladders"
+      )
+      .transaction(
+        (current) => {
+
+          if (
+            current?.status ===
+              "matched"
+          ) {
+
+            return null;
+
+          }
+
+          return current;
+
+        }
+      );
+
+
+    /*
+       Decide our color.
+    */
+
+    if (
+      state.creator.id ===
+      myId
+    ) {
+
+      slMyColor =
+        "R";
+
+    } else {
+
+      slMyColor =
+        "B";
+
+    }
+
+
+    slRoomId =
+      roomId;
+
+
+    /*
+       BOTH players enter the room.
+
+       This is what fixes the second
+       player's board problem.
+    */
+
+    await slEnterRoom(
+      roomId,
+      slMyColor
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      "Quick match room error:",
+      error
+    );
+
+  }
+
+}
+
+
+/* =========================================================
+   CANCEL SEARCH
+   ========================================================= */
+
+async function slCancelSearch() {
+
+  slCleanupQueueListener();
+
+
+  try {
+
+    await db
+      .ref(
+        "queues/snakes_ladders"
+      )
+      .transaction(
+        (current) => {
+
+          if (
+            current?.status ===
+              "waiting" &&
+
+            current.player?.id ===
+              myId
+          ) {
+
+            return null;
+
+          }
+
+
+          return current;
+
+        }
+      );
+
+  } catch (error) {
+
+    console.error(
+      "Cancel Snakes & Ladders search error:",
+      error
+    );
+
+  }
+
+
+  showScreen(
+    "sl-menu"
+  );
+
+}
+
+
+/* =========================================================
+   ENTER ROOM
+   ========================================================= */
+
+async function slEnterRoom(
+  roomId,
+  color
+) {
+
+  if (
+    !roomId ||
+    !myId
+  ) {
+
+    return;
+
+  }
+
+
+  slCleanupRoomListener();
+
+  slCleanupPrivateListener();
+
+
+  slRoomId =
+    roomId;
+
+  slMyColor =
+    color;
+
+  slResultHandled =
+    false;
+
+  slMoveInFlight =
+    false;
+
+
+  const roomRef =
+    db.ref(
+      "rooms/" +
+      roomId
+    );
+
+
+  /*
+     Get the room immediately.
+
+     This prevents waiting for a later
+     Firebase change before showing
+     the board.
+  */
+
+  const initial =
+    await roomRef.once(
+      "value"
+    );
+
+
+  if (
+    !initial.exists()
+  ) {
+
+    alert(
+      "This match no longer exists."
+    );
+
+    slCleanupAll();
+
+    slRoomId = null;
+    slMyColor = null;
+
+    showScreen(
+      "sl-menu"
+    );
+
+    return;
+
+  }
+
+
+  const initialRoom =
+    initial.val();
+
+
+  if (
+    !initialRoom.players?.R ||
+    !initialRoom.players?.B
+  ) {
+
+    /*
+       If the second player isn't visible
+       yet, wait for Firebase.
+    */
+
+    showScreen(
+      "sl-privatewait"
+    );
+
+  } else {
+
+    /*
+       Both players exist.
+
+       Open board immediately.
+    */
+
+    slRenderGame(
+      initialRoom
+    );
+
+  }
+
+
+  /*
+     NOW attach realtime listener.
+
+     Every roll, position change,
+     turn change, and game result
+     comes through here.
+  */
+
+  const callback =
+    async (snapshot) => {
+
+      if (
+        !snapshot.exists()
+      ) {
+
+        return;
+
+      }
+
+
+      const room =
+        snapshot.val();
+
+
+      /*
+         If opponent left.
+      */
+
+      if (
+        room.status ===
+          "opponent-left"
+      ) {
+
+        if (
+          slResultHandled
+        ) {
+
+          return;
+
+        }
+
+
+        slResultHandled =
+          true;
+
+
+        showNotification(
+          "Your opponent left the room."
+        );
+
+
+        slCleanupRoomListener();
+
+
+        setTimeout(() => {
+
+          slRoomId =
+            null;
+
+          slMyColor =
+            null;
+
+          showScreen(
+            "home"
+          );
+
+        }, 1200);
+
+
+        return;
+
+      }
+
+
+      /*
+         Game finished.
+      */
+
+      if (
+        room.status ===
+          "finished"
+      ) {
+
+        await slHandleGameEnd(
+          room
+        );
+
+        return;
+
+      }
+
+
+      /*
+         Active game.
+
+         RENDER FOR BOTH PLAYERS.
+
+         This is the key fix.
+      */
+
+      if (
+        room.status ===
+          "active" &&
+
+        room.players?.R &&
+        room.players?.B
+      ) {
+
+        slRenderGame(
+          room
+        );
+
+      }
+
+    };
+
+
+  slRoomRef =
+    roomRef;
+
+  slRoomCallback =
+    callback;
+
+
+  roomRef.on(
+    "value",
+    callback
+  );
+
+
+}
+
+
+/* =========================================================
+   RENDER GAME
+   ========================================================= */
+
+function slRenderGame(
+  room
+) {
+
+  if (
+    !room ||
+    !room.players?.R ||
+    !room.players?.B
+  ) {
+
+    return;
+
+  }
+
+
+  /*
+     OPEN THE BOARD.
+
+     This means the board is shown as
+     soon as both players exist.
+  */
+
+  showScreen(
+    "snakes"
+  );
+
+
+  /*
+     Determine players.
+  */
+
+  const me =
+    room.players?.[
+      slMyColor
+    ];
+
+
+  const opponentColor =
+    slMyColor === "R"
+      ? "B"
+      : "R";
+
+
+  const opponent =
+    room.players?.[
+      opponentColor
+    ];
+
+
+  const myPosition =
+    Number(
+      room.positions?.[
+        slMyColor
+      ] || 1
+    );
+
+
+  const opponentPosition =
+    Number(
+      room.positions?.[
+        opponentColor
+      ] || 1
+    );
+
+
+  /*
+     Names.
+  */
+
+  const myName =
+    document.getElementById(
+      "slMyName"
+    );
+
+
+  const opponentName =
+    document.getElementById(
+      "slOpponentName"
+    );
+
+
+  const myPos =
+    document.getElementById(
+      "slMyPosition"
+    );
+
+
+  const opponentPos =
+    document.getElementById(
+      "slOpponentPosition"
+    );
+
+
+  if (myName) {
+
+    myName.textContent =
+      me?.name ||
+      "You";
+
+  }
+
+
+  if (opponentName) {
+
+    opponentName.textContent =
+      opponent?.name ||
+      "Opponent";
+
+  }
+
+
+  if (myPos) {
+
+    myPos.textContent =
+      "Position: " +
+      myPosition;
+
+  }
+
+
+  if (opponentPos) {
+
+    opponentPos.textContent =
+      "Position: " +
+      opponentPosition;
+
+  }
+
+
+  /*
+     Turn.
+  */
+
+  const banner =
+    document.getElementById(
+      "slTurnBanner"
+    );
+
+
+  const rollButton =
+    document.getElementById(
+      "slRollBtn"
+    );
+
+
+  const isMyTurn =
+    room.turn ===
+    myId;
+
+
+  if (banner) {
+
+    banner.textContent =
+      isMyTurn
+        ? "🎲 Your turn"
+        : "⏳ Opponent's turn";
+
+  }
+
+
+  if (rollButton) {
+
+    rollButton.disabled =
+      !isMyTurn ||
+      slMoveInFlight;
+
+  }
+
+
+  /*
+     Last dice result.
+  */
+
+  const diceResult =
+    document.getElementById(
+      "slDiceResult"
+    );
+
+
+  if (
+    diceResult &&
+    room.lastRoll
+  ) {
+
+    const roller =
+      room.lastRoll.player ===
+      myId
+
+        ? "You"
+
+        : (
+            opponent?.name ||
+            "Opponent"
+          );
+
+
+    let text =
+      `${roller} rolled ${room.lastRoll.value}`;
+
+
+    /*
+       Show snake / ladder result.
+    */
+
+    if (
+      room.lastRoll.to !==
+      room.lastRoll.from +
+      room.lastRoll.value
+    ) {
+
+      if (
+        SL_LADDERS[
+          room.lastRoll.from +
+          room.lastRoll.value
+        ]
+      ) {
+
+        text +=
+          " 🪜 Ladder!";
+
+      }
+
+      else if (
+        SL_SNAKES[
+          room.lastRoll.from +
+          room.lastRoll.value
+        ]
+      ) {
+
+        text +=
+          " 🐍 Snake!";
+
+      }
+
+    }
+
+
+    diceResult.textContent =
+      text;
+
+  }
+
+
+  /*
+     Render board.
+  */
+
+  slRenderBoard(
+    room
+  );
+
+}
+
+
+/* =========================================================
+   RENDER BOARD
+   ========================================================= */
+
+function slRenderBoard(
+  room
+) {
+
+  const board =
+    document.getElementById(
+      "slBoard"
+    );
+
+
+  if (!board) {
+
+    return;
+
+  }
+
+
+  board.innerHTML = "";
+
+
+  const redPosition =
+    Number(
+      room.positions?.R ||
+      1
+    );
+
+
+  const bluePosition =
+    Number(
+      room.positions?.B ||
+      1
+    );
+
+
+  /*
+     100 -> 1 serpentine board.
+  */
+
+  for (
+    let row = 9;
+    row >= 0;
+    row--
+  ) {
+
+    const start =
+      row * 10 + 1;
+
+
+    const numbers = [];
+
+
+    for (
+      let i = 0;
+      i < 10;
+      i++
+    ) {
+
+      numbers.push(
+        start + i
+      );
+
+    }
+
+
+    /*
+       Reverse alternate rows.
+    */
+
+    if (
+      (9 - row) % 2 ===
+      1
+    ) {
+
+      numbers.reverse();
+
+    }
+
+
+    numbers.forEach(
+      (number) => {
+
+        const cell =
+          document.createElement(
+            "div"
+          );
+
+
+        cell.className =
+          "sl-cell";
+
+
+        /*
+           Number.
+        */
+
+        const numberEl =
+          document.createElement(
+            "span"
+          );
+
+
+        numberEl.className =
+          "sl-number";
+
+
+        numberEl.textContent =
+          number;
+
+
+        cell.appendChild(
+          numberEl
+        );
+
+
+        /*
+           Ladder.
+        */
+
+        if (
+          SL_LADDERS[number]
+        ) {
+
+          const icon =
+            document.createElement(
+              "span"
+            );
+
+
+          icon.className =
+            "sl-special";
+
+
+          icon.textContent =
+            "🪜";
+
+
+          cell.appendChild(
+            icon
+          );
+
+        }
+
+
+        /*
+           Snake.
+        */
+
+        if (
+          SL_SNAKES[number]
+        ) {
+
+          const icon =
+            document.createElement(
+              "span"
+            );
+
+
+          icon.className =
+            "sl-special";
+
+
+          icon.textContent =
+            "🐍";
+
+
+          cell.appendChild(
+            icon
+          );
+
+        }
+
+
+        /*
+           Red player.
+        */
+
+        if (
+          redPosition ===
+          number
+        ) {
+
+          const piece =
+            document.createElement(
+              "span"
+            );
+
+
+          piece.className =
+            "sl-piece sl-piece-one";
+
+
+          piece.textContent =
+            "🔴";
+
+
+          cell.appendChild(
+            piece
+          );
+
+        }
+
+
+        /*
+           Blue player.
+        */
+
+        if (
+          bluePosition ===
+          number
+        ) {
+
+          const piece =
+            document.createElement(
+              "span"
+            );
+
+
+          piece.className =
+            "sl-piece sl-piece-two";
+
+
+          piece.textContent =
+            "🔵";
+
+
+          cell.appendChild(
+            piece
+          );
+
+        }
+
+
+        board.appendChild(
+          cell
+        );
+
+      }
+    );
+
+  }
+
+}
+
+
+/* =========================================================
+   ROLL DICE
+   ========================================================= */
+
+async function slRollDice() {
+
+  if (
+    !slRoomId ||
+    !slMyColor ||
+    slMoveInFlight
+  ) {
+
+    return;
+
+  }
+
+
+  slMoveInFlight =
+    true;
+
+
+  const dice =
+    document.getElementById(
+      "slDice"
+    );
+
+
+  if (dice) {
+
+    dice.classList.remove(
+      "rolling"
+    );
+
+
+    void dice.offsetWidth;
+
+
+    dice.classList.add(
+      "rolling"
+    );
+
+  }
+
+
+  try {
+
+    const roomRef =
+      db.ref(
+        "rooms/" +
+        slRoomId
+      );
+
+
+    /*
+       TRANSACTION.
+
+       This makes sure two browsers
+       cannot roll at the same time.
+    */
+
+    const result =
+      await roomRef.transaction(
+        (room) => {
+
+          if (!room) {
+
+            return;
+
+          }
+
+
+          if (
+            room.status !==
+            "active"
+          ) {
+
+            return;
+
+          }
+
+
+          if (
+            room.turn !==
+            myId
+          ) {
+
+            return;
+
+          }
+
+
+          /*
+             Roll 1-6.
+          */
+
+          const roll =
+            Math.floor(
+              Math.random() * 6
+            ) + 1;
+
+
+          const oldPosition =
+            Number(
+              room.positions?.[
+                slMyColor
+              ] || 1
+            );
+
+
+          /*
+             Move.
+          */
+
+          let newPosition =
+            oldPosition +
+            roll;
+
+
+          /*
+             Exact 100 rule.
+
+             If the roll goes beyond 100,
+             player stays where they are.
+          */
+
+          if (
+            newPosition >
+            SL_LAST
+          ) {
+
+            newPosition =
+              oldPosition;
+
+          }
+
+
+          /*
+             Ladder.
+          */
+
+          const landedOn =
+            newPosition;
+
+
+          if (
+            SL_LADDERS[
+              newPosition
+            ]
+          ) {
+
+            newPosition =
+              SL_LADDERS[
+                newPosition
+              ];
+
+          }
+
+
+          /*
+             Snake.
+          */
+
+          else if (
+            SL_SNAKES[
+              newPosition
+            ]
+          ) {
+
+            newPosition =
+              SL_SNAKES[
+                newPosition
+              ];
+
+          }
+
+
+          /*
+             Save position.
+          */
+
+          room.positions =
+            room.positions ||
+            {};
+
+
+          room.positions[
+            slMyColor
+          ] =
+            newPosition;
+
+
+          /*
+             Save dice information.
+          */
+
+          room.lastRoll = {
+
+            value:
+              roll,
+
+            player:
+              myId,
+
+            from:
+              oldPosition,
+
+            landedOn:
+              landedOn,
+
+            to:
+              newPosition,
+
+            timestamp:
+              firebase.database
+                .ServerValue
+                .TIMESTAMP
+
+          };
+
+
+          room.moveCount =
+            Number(
+              room.moveCount ||
+              0
+            ) + 1;
+
+
+          /*
+             WIN.
+          */
+
+          if (
+            newPosition ===
+            SL_LAST
+          ) {
+
+            room.status =
+              "finished";
+
+
+            room.winner =
+              myId;
+
+
+            return room;
+
+          }
+
+
+          /*
+             Switch turn.
+          */
+
+          const opponentColor =
+            slMyColor === "R"
+              ? "B"
+              : "R";
+
+
+          const opponent =
+            room.players?.[
+              opponentColor
+            ];
+
+
+          if (
+            opponent?.id
+          ) {
+
+            room.turn =
+              opponent.id;
+
+          }
+
+
+          return room;
+
+        }
+      );
+
+
+    if (
+      !result.committed
+    ) {
+
+      console.log(
+        "Dice roll rejected."
+      );
+
+    }
+
+
+  } catch (error) {
+
+    console.error(
+      "Snakes & Ladders roll error:",
+      error
+    );
+
+  }
+
+
+  /*
+     Allow next roll after the current
+     transaction has completed.
+  */
+
+  setTimeout(() => {
+
+    slMoveInFlight =
+      false;
+
+
+  }, 350);
+
+}
+
+
+/* =========================================================
+   GAME END
+   ========================================================= */
+
+async function slHandleGameEnd(
+  room
+) {
+
+  if (
+    !room ||
+    room.status !==
+      "finished" ||
+    slResultHandled
+  ) {
+
+    return;
+
+  }
+
+
+  slResultHandled =
+    true;
+
+
+  slCleanupRoomListener();
+
+
+  const iWon =
+    room.winner ===
+    myId;
+
+
+  const opponentColor =
+    slMyColor === "R"
+      ? "B"
+      : "R";
+
+
+  const opponent =
+    room.players?.[
+      opponentColor
+    ];
+
+
+  const xpChange =
+    iWon
+      ? 25
+      : -10;
+
+
+  const emoji =
+    document.getElementById(
+      "slResultEmoji"
+    );
+
+
+  const title =
+    document.getElementById(
+      "slResultTitle"
+    );
+
+
+  const sub =
+    document.getElementById(
+      "slResultSub"
+    );
+
+
+  const xp =
+    document.getElementById(
+      "slXpChange"
+    );
+
+
+  if (iWon) {
+
+    if (emoji) {
+
+      emoji.textContent =
+        "🏆";
+
+    }
+
+
+    if (title) {
+
+      title.textContent =
+        "Victory!";
+
+      title.className =
+        "result-title win";
+
+    }
+
+
+    if (sub) {
+
+      sub.textContent =
+        `You reached 100 before ${
+          opponent?.name ||
+          "your opponent"
+        }!`;
+
+    }
+
+
+    showNotification(
+      "🏆 You reached 100 and won!"
+    );
+
+
+  } else {
+
+    if (emoji) {
+
+      emoji.textContent =
+        "💀";
+
+    }
+
+
+    if (title) {
+
+      title.textContent =
+        "Defeat";
+
+      title.className =
+        "result-title lose";
+
+    }
+
+
+    if (sub) {
+
+      sub.textContent =
+        `${
+          opponent?.name ||
+          "Your opponent"
+        } reached 100 first.`;
+
+    }
+
+
+    showNotification(
+      `💀 ${
+        opponent?.name ||
+        "Your opponent"
+      } won the game.`
+    );
+
+  }
+
+
+  if (xp) {
+
+    xp.textContent =
+      (
+        xpChange >= 0
+          ? "+"
+          : ""
+      ) +
+      xpChange +
+      " XP";
+
+
+    xp.className =
+      "xp-change " +
+      (
+        xpChange >= 0
+          ? "pos"
+          : "neg"
+      );
+
+  }
+
+
+  showScreen(
+    "sl-result"
+  );
+
+
+  /*
+     Update stats.
+
+     Uses the same player structure
+     as the rest of Arena.
+  */
+
+  try {
+
+    const playerRef =
+      db.ref(
+        "players/" +
+        myId
+      );
+
+
+    await playerRef.transaction(
+      (player) => {
+
+        player =
+          player ||
+          {
+
+            id:
+              myId,
+
+            name:
+              myProfile?.name ||
+              "Player",
+
+            avatar:
+              myProfile?.avatar ||
+              "🎮",
+
+            xp:
+              0,
+
+            wins:
+              0,
+
+            losses:
+              0,
+
+            draws:
+              0,
+
+            played:
+              0
+
+          };
+
+
+        player.played =
+          Number(
+            player.played ||
+            0
+          ) + 1;
+
+
+        if (iWon) {
+
+          player.wins =
+            Number(
+              player.wins ||
+              0
+            ) + 1;
+
+        } else {
+
+          player.losses =
+            Number(
+              player.losses ||
+              0
+            ) + 1;
+
+        }
+
+
+        player.xp =
+          Math.max(
+            0,
+
+            Number(
+              player.xp ||
+              0
+            ) +
+            xpChange
+
+          );
+
+
+        return player;
+
+      }
+    );
+
+
+    /*
+       Refresh local profile.
+    */
+
+    const profileSnapshot =
+      await playerRef.once(
+        "value"
+      );
+
+
+    if (
+      profileSnapshot.exists()
+    ) {
+
+      myProfile =
+        profileSnapshot.val();
+
+
+      localStorage.setItem(
+        "arenaProfile",
+
+        JSON.stringify(
+          myProfile
+        )
+      );
+
+
+      /*
+         Your existing function.
+      */
+
+      if (
+        typeof applyProfileToNav ===
+        "function"
+      ) {
+
+        applyProfileToNav();
+
+      }
+
+    }
+
+
+    /*
+       Your existing leaderboard
+       function.
+    */
+
+    if (
+      typeof refreshLeaderboardData ===
+      "function"
+    ) {
+
+      await refreshLeaderboardData();
+
+    }
+
+
+  } catch (error) {
+
+    console.error(
+      "Snakes & Ladders result update error:",
+      error
+    );
+
+  }
+
+}
+
+
+/* =========================================================
+   LEAVE GAME
+   ========================================================= */
+
+async function slLeaveGame() {
+
+  if (!slRoomId) {
+
+    closeSnakesLadders();
+
+    return;
+
+  }
+
+
+  const roomId =
+    slRoomId;
+
+
+  const color =
+    slMyColor;
+
+
+  const roomRef =
+    db.ref(
+      "rooms/" +
+      roomId
+    );
+
+
+  try {
+
+    await roomRef.transaction(
+      (room) => {
+
+        if (!room) {
+
+          return;
+
+        }
+
+
+        if (
+          room.status !==
+          "active"
+        ) {
+
+          return room;
+
+        }
+
+
+        const opponentColor =
+          color === "R"
+            ? "B"
+            : "R";
+
+
+        const opponent =
+          room.players?.[
+            opponentColor
+          ];
+
+
+        if (
+          opponent?.id
+        ) {
+
+          room.status =
+            "opponent-left";
+
+
+          room.leftPlayer =
+            myId;
+
+
+          room.leftAt =
+            firebase.database
+              .ServerValue
+              .TIMESTAMP;
+
+        }
+
+
+        return room;
+
+      }
+    );
+
+  } catch (error) {
+
+    console.error(
+      "Leave Snakes & Ladders error:",
+      error
+    );
+
+  }
+
+
+  slCleanupAll();
+
+
+  slRoomId =
+    null;
+
+  slMyColor =
+    null;
+
+  slResultHandled =
+    false;
+
+  slMoveInFlight =
+    false;
+
+
+  showScreen(
+    "home"
+  );
+
+}
+
+
+/* =========================================================
+   CANCEL PRIVATE ROOM
+   ========================================================= */
+
+async function slCancelPrivateRoom() {
+
+  const roomId =
+    slRoomId;
+
+
+  /*
+     Stop listener BEFORE deleting room.
+  */
+
+  slCleanupAll();
+
+
+  if (roomId) {
+
+    try {
+
+      await db
+        .ref(
+          "rooms/" +
+          roomId
+        )
+        .remove();
+
+    } catch (error) {
+
+      console.error(
+        "Private room cleanup error:",
+        error
+      );
+
+    }
+
+  }
+
+
+  slRoomId =
+    null;
+
+  slMyColor =
+    null;
+
+  slResultHandled =
+    false;
+
+
+  showScreen(
+    "sl-menu"
+  );
+
+}
