@@ -2334,75 +2334,123 @@ function startRoomListener(
     "value",
     async (snapshot) => {
 
-      if (
-        !snapshot.exists()
-      ) {
-        return;
-      }
+      try {
 
-      const room =
-        snapshot.val();
+        if (
+          !snapshot.exists()
+        ) {
+          return;
+        }
 
-      currentRoomData = room;
+        const room =
+          snapshot.val();
 
+        currentRoomData = room;
 
-      /*
-         Opponent left through
-         explicit room status.
-      */
-
-      if (
-        room.status ===
-          "opponent-left" &&
-        !resultHandled
-      ) {
-
-        resultHandled = true;
-
-        showNotification(
-          "Your opponent left the room."
+        console.log(
+          "ROOM UPDATE:",
+          room.status,
+          "winner:",
+          room.winner,
+          "turn:",
+          room.turn
         );
 
-        cleanupRoomListener();
-        stopOpponentPresenceListener();
 
-        setTimeout(() => {
-          currentRoomId = null;
-          mySymbol = null;
-          showScreen("home");
-        }, 1200);
+        /*
+           Opponent left through
+           explicit room status.
+        */
 
-        return;
-      }
+        if (
+          room.status ===
+            "opponent-left" &&
+          !resultHandled
+        ) {
+
+          resultHandled = true;
+
+          showNotification(
+            "Your opponent left the room."
+          );
+
+          cleanupRoomListener();
+          stopOpponentPresenceListener();
+
+          setTimeout(() => {
+            currentRoomId = null;
+            mySymbol = null;
+            showScreen("home");
+          }, 1200);
+
+          return;
+        }
 
 
-      if (
-        room.players?.X &&
-        room.players?.O
-      ) {
+        /*
+           IMPORTANT:
+           Check for game end FIRST, and run it
+           independently of the rendering step below.
+           If setupGameScreen/renderBoard ever throws
+           for any reason, that must NOT be able to
+           silently swallow the win/draw notification —
+           that was the suspected cause of the result
+           only ever showing on the mover's own device.
+        */
 
-        setupGameScreen(
-          room,
-          mySymbol
+        if (
+          room.status ===
+            "finished" &&
+          !resultHandled
+        ) {
+          await handleGameEnd(
+            room,
+            mySymbol
+          );
+        }
+
+
+        if (
+          room.players?.X &&
+          room.players?.O
+        ) {
+
+          try {
+
+            setupGameScreen(
+              room,
+              mySymbol
+            );
+
+            renderBoard(
+              room,
+              mySymbol
+            );
+
+          } catch (renderError) {
+            console.error(
+              "ROOM RENDER ERROR:",
+              renderError
+            );
+          }
+        }
+
+      } catch (error) {
+        console.error(
+          "ROOM LISTENER ERROR:",
+          error
         );
-
-        renderBoard(
-          room,
-          mySymbol
-        );
       }
-
-
-      if (
-        room.status ===
-          "finished" &&
-        !resultHandled
-      ) {
-        await handleGameEnd(
-          room,
-          mySymbol
-        );
-      }
+    },
+    (error) => {
+      // Fires on permission-denied or the
+      // listener being cancelled by the server.
+      // If this ever logs, the DB rules are the
+      // real blocker — not app logic.
+      console.error(
+        "ROOM LISTENER CANCELLED:",
+        error
+      );
     }
   );
 }
@@ -2780,75 +2828,179 @@ async function handleOpponentLeft(
   }
 }
 
-
 /* =========================================================
-   GAME END
+   GAME END — MULTIPLAYER RESULT
+   Both players are notified from the Firebase room result.
    ========================================================= */
 
-async function handleGameEnd(
-  room,
-  symbol
-) {
-  if (
-    resultHandled
-  ) {
+async function handleGameEnd(room, symbol) {
+  if (!room || room.status !== "finished") {
+    return;
+  }
+
+  // Prevent the same client from processing the same result twice
+  if (resultHandled) {
     return;
   }
 
   resultHandled = true;
 
-  cleanupRoomListener();
-  stopOpponentPresenceListener();
+  const iWon = room.winner === myId;
+  const draw = room.winner === "draw";
 
-  const iWon =
-    room.winner ===
-    myId;
+  const opponentSymbol = getOpponentSymbol(symbol);
 
-  const draw =
-    room.winner ===
-    "draw";
+  const opponent = getPlayer(
+    room,
+    opponentSymbol
+  );
 
-  const opponentSymbol =
-    getOpponentSymbol(
-      symbol
-    );
+  /*
+     ========================================================
+     IMPORTANT
 
-  const opponent =
-    getPlayer(
-      room,
-      opponentSymbol
-    );
+     The result is calculated independently on EACH device.
 
-  let xpChange = 0;
+     Player A:
+       room.winner === A's ID  -> Victory
+
+     Player B:
+       room.winner === A's ID  -> Defeat
+
+     Draw:
+       room.winner === "draw"  -> Draw
+
+     Therefore both browsers receive the exact same Firebase
+     room state but display their own correct result.
+     ========================================================
+  */
+
+  let titleText;
+  let subText;
+  let emoji;
+  let resultClass;
+  let xpChange;
 
   if (draw) {
+    emoji = "🤝";
+    titleText = "It's a Draw!";
+    resultClass = "draw";
     xpChange = 5;
+
+    subText =
+      `Evenly matched against ${
+        opponent?.name || "your opponent"
+      }.`;
   } else if (iWon) {
+    emoji = "🏆";
+    titleText = "Victory!";
+    resultClass = "win";
     xpChange = 25;
+
+    subText =
+      `You beat ${
+        opponent?.name || "your opponent"
+      }. Well played!`;
   } else {
+    emoji = "💀";
+    titleText = "Defeat";
+    resultClass = "lose";
     xpChange = -10;
+
+    subText =
+      `${
+        opponent?.name || "Your opponent"
+      } got the better of you this time.`;
   }
 
-  const playerRef =
-    db.ref(
-      "players/" +
-        myId
+  /*
+     ========================================================
+     SHOW RESULT IMMEDIATELY
+
+     Do this BEFORE updating XP/database so the opponent
+     doesn't have to wait for Firebase transactions.
+     ========================================================
+  */
+
+  const emojiElement =
+    document.getElementById("resultEmoji");
+
+  const titleElement =
+    document.getElementById("resultTitle");
+
+  const subElement =
+    document.getElementById("resultSub");
+
+  const xpElement =
+    document.getElementById("xpChange");
+
+  if (emojiElement) {
+    emojiElement.textContent = emoji;
+  }
+
+  if (titleElement) {
+    titleElement.textContent = titleText;
+
+    titleElement.className =
+      "result-title " + resultClass;
+  }
+
+  if (subElement) {
+    subElement.textContent = subText;
+  }
+
+  if (xpElement) {
+    xpElement.textContent =
+      (xpChange >= 0 ? "+" : "") +
+      xpChange +
+      " XP";
+
+    xpElement.className =
+      "xp-change " +
+      (xpChange >= 0 ? "pos" : "neg");
+  }
+
+  /*
+     Immediate toast notification too.
+     So the player who DID NOT make the final move
+     also gets a clear notification.
+  */
+
+  if (draw) {
+    showNotification("🤝 The game ended in a draw!");
+  } else if (iWon) {
+    showNotification("🏆 You won the game!");
+  } else {
+    showNotification(
+      `💀 ${opponent?.name || "Your opponent"} won the game.`
     );
+  }
 
-  try {
+  /*
+     Open result screen immediately.
+  */
 
-    await playerRef.transaction(
-      (player) => {
+  showScreen("result");
 
+  /*
+     ========================================================
+     UPDATE PLAYER STATS
+     ========================================================
+  */
+
+  if (myId) {
+    try {
+      const playerRef =
+        db.ref("players/" + myId);
+
+      await playerRef.transaction((player) => {
         player =
           player || {
             id: myId,
             name:
-              myProfile?.name ||
-              "Player",
+              myProfile?.name || "Player",
             avatar:
-              myProfile?.avatar ||
-              "🎮",
+              myProfile?.avatar || "🎮",
             xp: 0,
             wins: 0,
             losses: 0,
@@ -2857,162 +3009,64 @@ async function handleGameEnd(
           };
 
         player.played =
-          Number(
-            player.played || 0
-          ) + 1;
+          Number(player.played || 0) + 1;
 
         if (draw) {
-
           player.draws =
-            Number(
-              player.draws || 0
-            ) + 1;
-
+            Number(player.draws || 0) + 1;
         } else if (iWon) {
-
           player.wins =
-            Number(
-              player.wins || 0
-            ) + 1;
-
+            Number(player.wins || 0) + 1;
         } else {
-
           player.losses =
-            Number(
-              player.losses || 0
-            ) + 1;
+            Number(player.losses || 0) + 1;
         }
 
-        player.xp =
-          Math.max(
-            0,
-            Number(
-              player.xp || 0
-            ) + xpChange
-          );
+        player.xp = Math.max(
+          0,
+          Number(player.xp || 0) + xpChange
+        );
 
         return player;
+      });
+
+      /*
+         Refresh local profile after stats update.
+      */
+
+      const profileSnapshot =
+        await playerRef.once("value");
+
+      if (profileSnapshot.exists()) {
+        myProfile =
+          profileSnapshot.val();
+
+        localStorage.setItem(
+          "arenaProfile",
+          JSON.stringify(myProfile)
+        );
       }
-    );
 
-
-    const profileSnapshot =
-      await playerRef.once(
-        "value"
-      );
-
-    if (
-      profileSnapshot.exists()
-    ) {
-      myProfile =
-        profileSnapshot.val();
-
-      localStorage.setItem(
-        "arenaProfile",
-        JSON.stringify(
-          myProfile
-        )
+    } catch (error) {
+      console.error(
+        "Game result update error:",
+        error
       );
     }
-
-  } catch (error) {
-
-    console.error(
-      "Game result update error:",
-      error
-    );
   }
 
-
-  const emoji =
-    document.getElementById(
-      "resultEmoji"
-    );
-
-  const title =
-    document.getElementById(
-      "resultTitle"
-    );
-
-  const sub =
-    document.getElementById(
-      "resultSub"
-    );
-
-  const xp =
-    document.getElementById(
-      "xpChange"
-    );
-
-
-  if (emoji) {
-    emoji.textContent =
-      draw
-        ? "🤝"
-        : iWon
-          ? "🏆"
-          : "💀";
-  }
-
-
-  if (title) {
-
-    title.textContent =
-      draw
-        ? "It's a Draw!"
-        : iWon
-          ? "Victory!"
-          : "Defeat";
-
-    title.className =
-      "result-title " +
-      (
-        draw
-          ? "draw"
-          : iWon
-            ? "win"
-            : "lose"
-      );
-  }
-
-
-  if (sub) {
-
-    const opponentName =
-      opponent?.name ||
-      "your opponent";
-
-    sub.textContent =
-      draw
-        ? `Evenly matched against ${opponentName}.`
-        : iWon
-          ? `You beat ${opponentName}. Well played!`
-          : `${opponentName} got the better of you this time.`;
-  }
-
-
-  if (xp) {
-
-    xp.textContent =
-      (xpChange >= 0
-        ? "+"
-        : "") +
-      xpChange +
-      " XP";
-
-    xp.className =
-      "xp-change " +
-      (
-        xpChange >= 0
-          ? "pos"
-          : "neg"
-      );
-  }
-
-
-  showScreen("result");
+  /*
+     Refresh leaderboard after stats update.
+  */
 
   await refreshLeaderboardData();
+
+  /*
+     Only NOW stop listening to the finished room.
+  */
+
+  cleanupRoomListener();
+  stopOpponentPresenceListener();
 }
 
 
