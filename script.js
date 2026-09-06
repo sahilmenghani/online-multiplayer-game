@@ -1798,22 +1798,26 @@ function setupGameScreen(
 /* =========================================================
    BOARD
    ========================================================= */
-
+```js
 function renderBoard(room, symbol) {
   const board = document.getElementById("board");
 
-  if (!board) return;
+  if (!board) {
+    console.error("ARENA: #board not found");
+    return;
+  }
 
   board.innerHTML = "";
+
+  const boardData = Array.isArray(room.board)
+    ? room.board
+    : Array(9).fill(null);
 
   const isMyTurn =
     room.status === "active" &&
     room.turn === myId;
 
-  // -----------------------------
-  // TURN BANNER
-  // -----------------------------
-
+  // Turn banner
   const banner = document.getElementById("turnBanner");
 
   if (banner) {
@@ -1832,10 +1836,7 @@ function renderBoard(room, symbol) {
     }
   }
 
-  // -----------------------------
-  // PLAYER CARDS
-  // -----------------------------
-
+  // Player cards
   const meCard = document.getElementById("meCard");
   const opponentCard = document.getElementById("opponentCard");
 
@@ -1850,27 +1851,23 @@ function renderBoard(room, symbol) {
     );
   }
 
-  // -----------------------------
-  // BOARD
-  // -----------------------------
-
-  const boardData = Array.isArray(room.board)
-    ? room.board
-    : Array(9).fill(null);
-
+  // Create 9 cells
   for (let index = 0; index < 9; index++) {
     const value = boardData[index] || "";
 
     const cell = document.createElement("div");
 
     cell.className = "cell";
+    cell.dataset.index = index;
 
+    // Existing X/O
     if (value) {
       cell.classList.add("filled");
       cell.classList.add(value.toLowerCase());
+      cell.textContent = value;
     }
 
-    // Winning cell
+    // Winning line
     if (
       room.winLine &&
       room.winLine.includes(index)
@@ -1878,26 +1875,76 @@ function renderBoard(room, symbol) {
       cell.classList.add("win");
     }
 
-    cell.textContent = value;
-
-    // --------------------------------
-    // IMPORTANT:
-    // Attach click to every empty cell
-    // while game is active.
-    // makeMove() checks the turn.
-    // --------------------------------
-
+    /*
+      IMPORTANT:
+      Every empty cell gets a click handler.
+      makeMove() itself decides whether the move
+      is actually allowed.
+    */
     if (!value && room.status === "active") {
-      cell.addEventListener("click", () => {
-        makeMove(index, symbol);
-      });
+      cell.onclick = function () {
+        console.log("CELL CLICKED:", index);
+
+        makeMove(index, mySymbol);
+      };
     }
 
     board.appendChild(cell);
   }
+
+  console.log("BOARD RENDERED:", {
+    room: currentRoomId,
+    myId,
+    mySymbol,
+    firebaseTurn: room.turn,
+    isMyTurn,
+    board: boardData
+  });
 }
+```
 
+function setupBoardClicks() {
+  const board = document.getElementById("board");
 
+  if (!board) {
+    console.error("ARENA: #board not found");
+    return;
+  }
+
+  // Prevent duplicate listeners.
+  if (board.dataset.clickReady === "true") {
+    return;
+  }
+
+  board.dataset.clickReady = "true";
+
+  board.addEventListener("click", (event) => {
+    const cell = event.target.closest(".cell");
+
+    if (!cell || !board.contains(cell)) {
+      return;
+    }
+
+    const index = Number(cell.dataset.index);
+
+    if (!Number.isInteger(index)) {
+      return;
+    }
+
+    console.log(
+      "ARENA CLICK:",
+      index,
+      "room:",
+      currentRoomId,
+      "myId:",
+      myId,
+      "symbol:",
+      mySymbol
+    );
+
+    makeMove(index, mySymbol);
+  });
+}
 /* =========================================================
    WINNER CHECK
    ========================================================= */
@@ -1944,194 +1991,146 @@ function checkWinner(board) {
    MAKE MOVE
    ========================================================= */
 
-async function makeMove(
-  index,
-  symbol
-) {
-  if (
-    !currentRoomId ||
-    !myId
-  ) {
+async function makeMove(index, symbol) {
+  symbol = mySymbol;
+
+  console.log("MAKE MOVE:", {
+    index,
+    symbol,
+    currentRoomId,
+    myId,
+    mySymbol
+  });
+
+  // rest of your existing makeMove code...
+
+  if (!currentRoomId || !myId) {
+    console.error("MOVE BLOCKED: missing room or player ID");
     return;
   }
 
-
-  /*
-     Validate board index.
-  */
-
-  if (
-    index < 0 ||
-    index > 8
-  ) {
+  if (index < 0 || index > 8) {
+    console.error("MOVE BLOCKED: invalid index", index);
     return;
   }
 
+  if (!symbol) {
+    console.error("MOVE BLOCKED: symbol is missing");
+    return;
+  }
 
-  const roomRef =
-    db.ref(
-      "rooms/" +
-      currentRoomId
-    );
-
+  const roomRef = db.ref(
+    "rooms/" + currentRoomId
+  );
 
   try {
+    const result = await roomRef.transaction((room) => {
 
-    const result =
-      await roomRef.transaction(
-        (room) => {
+      if (!room) {
+        console.error("MOVE BLOCKED: room doesn't exist");
+        return;
+      }
 
-          if (!room) {
-            return;
+      if (room.status !== "active") {
+        console.error(
+          "MOVE BLOCKED: room status =",
+          room.status
+        );
+        return;
+      }
+
+      if (room.turn !== myId) {
+        console.error(
+          "MOVE BLOCKED: not your turn",
+          {
+            roomTurn: room.turn,
+            myId: myId
           }
+        );
+        return;
+      }
 
-          if (
-            room.status !== "active"
-          ) {
-            return;
+      if (!Array.isArray(room.board)) {
+        console.error("MOVE BLOCKED: invalid board");
+        return;
+      }
+
+      if (room.board[index]) {
+        console.error(
+          "MOVE BLOCKED: cell already occupied"
+        );
+        return;
+      }
+
+      if (
+        !room.players?.[symbol] ||
+        room.players[symbol].id !== myId
+      ) {
+        console.error(
+          "MOVE BLOCKED: symbol doesn't belong to player",
+          {
+            symbol,
+            player: room.players?.[symbol]
           }
+        );
+        return;
+      }
 
-          if (
-            room.turn !== myId
-          ) {
-            return;
-          }
+      // MAKE MOVE
+      room.board[index] = symbol;
 
-          if (
-            !Array.isArray(
-              room.board
-            )
-          ) {
-            return;
-          }
+      room.moveCount =
+        Number(room.moveCount || 0) + 1;
 
-          if (
-            room.board[index]
-          ) {
-            return;
-          }
+      const winner = checkWinner(room.board);
 
+      if (winner) {
+        room.status = "finished";
+        room.winLine = winner.line;
 
-          /*
-             Make sure the symbol
-             actually belongs to us.
-          */
-
-          if (
-            !room.players?.[symbol] ||
-            room.players[symbol].id !== myId
-          ) {
-            return;
-          }
-
-
-          /*
-             Place move.
-          */
-
-          room.board[index] =
-            symbol;
-
-          room.moveCount =
-            Number(
-              room.moveCount || 0
-            ) + 1;
-
-
-          /*
-             Check winner.
-          */
-
-          const winner =
-            checkWinner(
-              room.board
-            );
-
-
-          if (winner) {
-
-            room.status =
-              "finished";
-
-            room.winLine =
-              winner.line;
-
-
-            if (
-              winner.symbol === "draw"
-            ) {
-
-              room.winner =
-                "draw";
-
-            } else {
-
-              room.winner =
-                room
-                  .players[
-                    winner.symbol
-                  ]
-                  .id;
-            }
-
-            room.finishedAt =
-              firebase.database
-                .ServerValue
-                .TIMESTAMP;
-
-          } else {
-
-            /*
-               Change turn.
-            */
-
-            const nextSymbol =
-              getOpponentSymbol(
-                symbol
-              );
-
-            room.turn =
-              room
-                .players[
-                  nextSymbol
-                ]
-                .id;
-          }
-
-
-          return room;
+        if (winner.symbol === "draw") {
+          room.winner = "draw";
+        } else {
+          room.winner =
+            room.players[winner.symbol].id;
         }
+
+        room.finishedAt =
+          firebase.database.ServerValue.TIMESTAMP;
+
+      } else {
+        const nextSymbol =
+          getOpponentSymbol(symbol);
+
+        room.turn =
+          room.players[nextSymbol].id;
+      }
+
+      return room;
+    });
+
+    if (!result.committed) {
+      console.error(
+        "MOVE NOT COMMITTED — Firebase transaction rejected."
       );
-
-
-    if (
-      !result.committed
-    ) {
       return;
     }
-
 
     const updatedRoom =
       result.snapshot.val();
 
-    if (!updatedRoom) {
-      return;
-    }
-
+    console.log(
+      "MOVE SUCCESS:",
+      updatedRoom
+    );
 
     renderBoard(
       updatedRoom,
       symbol
     );
 
-
-    /*
-       Handle finished game.
-    */
-
     if (
-      updatedRoom.status ===
-      "finished"
+      updatedRoom.status === "finished"
     ) {
       await handleGameEnd(
         updatedRoom,
@@ -2140,14 +2139,17 @@ async function makeMove(
     }
 
   } catch (error) {
-
     console.error(
-      "Move error:",
+      "FIREBASE MOVE ERROR:",
       error
+    );
+
+    alert(
+      "Move failed: " +
+      error.message
     );
   }
 }
-
 
 /* =========================================================
    REALTIME ROOM LISTENER
@@ -2644,7 +2646,7 @@ async function boot() {
     /*
        Presence.
     */
-
+setupBoardClicks();
     startPresence();
 
 
