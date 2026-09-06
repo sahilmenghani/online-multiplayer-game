@@ -1103,7 +1103,7 @@ async function createMatchFromWaitingPlayer(
       },
     },
 
-    board: Array(9).fill(null),
+    board: Array(9).fill(""),
 
     turn: opponent.id,
 
@@ -1361,7 +1361,7 @@ async function createPrivateRoom() {
       O: null,
     },
 
-    board: Array(9).fill(null),
+    board: Array(9).fill(""),
 
     turn: myId,
 
@@ -1612,7 +1612,8 @@ async function joinPrivateRoom() {
 
 async function enterRoom(
   roomId,
-  symbol
+  symbol,
+  retryCount = 0
 ) {
   if (!roomId || !myId) {
     return;
@@ -1668,9 +1669,18 @@ async function enterRoom(
       );
 
     if (!me || !opponent) {
-      alert(
-        "Waiting for the second player."
-      );
+      if (retryCount >= 12) {
+        // ~5 seconds of retrying; give up for real.
+        alert(
+          "Waiting for the second player."
+        );
+        showScreen("gamemenu");
+        return;
+      }
+
+      setTimeout(() => {
+        enterRoom(roomId, symbol, retryCount + 1);
+      }, 400);
 
       return;
     }
@@ -1975,8 +1985,8 @@ function renderBoard(room, symbol) {
 
   const boardData =
     Array.isArray(room.board)
-      ? room.board
-      : Array(9).fill(null);
+      ? Array.from({ length: 9 }, (_, i) => room.board[i] || "")
+      : Array(9).fill("");
 
   const isMyTurn =
     room.status === "active" &&
@@ -2206,9 +2216,19 @@ async function makeMove(index) {
         return;
       }
 
-      // Make sure board exists
+      // Make sure board exists AND has exactly 9 slots.
+      // Firebase can hand back a shorter array (or an
+      // object) if slots were ever stored as null, so
+      // normalize defensively every time, never trusting
+      // the raw length/type coming back from the DB.
       if (!Array.isArray(room.board)) {
-        room.board = Array(9).fill(null);
+        room.board = Array(9).fill("");
+      } else if (room.board.length < 9) {
+        const padded = Array(9).fill("");
+        for (let i = 0; i < room.board.length; i++) {
+          padded[i] = room.board[i] || "";
+        }
+        room.board = padded;
       }
 
       // Invalid cell
@@ -2337,6 +2357,8 @@ function startRoomListener(
         !resultHandled
       ) {
 
+        resultHandled = true;
+
         showNotification(
           "Your opponent left the room."
         );
@@ -2347,7 +2369,7 @@ function startRoomListener(
         setTimeout(() => {
           currentRoomId = null;
           mySymbol = null;
-          showScreen("gamemenu");
+          showScreen("home");
         }, 1200);
 
         return;
@@ -2620,47 +2642,6 @@ async function leaveCurrentRoom() {
   currentRoomId = null;
   mySymbol = null;
 }
-async function markRoomPresence(
-  roomId
-) {
-  if (
-    !roomId ||
-    !myId
-  ) {
-    return;
-  }
-
-  const ref =
-    db.ref(
-      "roomPresence/" +
-        roomId +
-        "/" +
-        myId
-    );
-
-  await ref.set({
-    connected: true,
-    name:
-      myProfile?.name ||
-      "Player",
-    lastSeen:
-      firebase.database
-        .ServerValue
-        .TIMESTAMP,
-  });
-
-  await ref.onDisconnect().set({
-    connected: false,
-    name:
-      myProfile?.name ||
-      "Player",
-    lastSeen:
-      firebase.database
-        .ServerValue
-        .TIMESTAMP,
-  });
-}
-
 /* =========================================================
    OPPONENT LEFT
    ========================================================= */
@@ -2729,6 +2710,8 @@ async function handleOpponentLeft(
        Mark room as opponent-left.
     */
 
+    resultHandled = true;
+
     await db
       .ref(
         "rooms/" +
@@ -2781,11 +2764,11 @@ async function handleOpponentLeft(
 
 
     /*
-       Send player back to game lobby.
+       Send player back to home.
     */
 
     setTimeout(() => {
-      showScreen("gamemenu");
+      showScreen("home");
     }, 1200);
 
   } catch (error) {
@@ -3048,7 +3031,7 @@ function startAIMatch() {
   aiGame = {
     active: true,
 
-    board: Array(9).fill(null),
+    board: Array(9).fill(""),
 
     mySymbol: "X",
 
@@ -4092,6 +4075,15 @@ window.addEventListener(
 
     if (presenceRef) {
       presenceRef.remove();
+    }
+
+    if (roomPresenceRef) {
+      // Best-effort synchronous cleanup; the
+      // server-side onDisconnect() handler set up
+      // in markRoomPresence() is the real guarantee,
+      // but firing this too means a normal refresh/
+      // close is detected as fast as possible.
+      roomPresenceRef.remove();
     }
 
     cleanupQueueListener();
